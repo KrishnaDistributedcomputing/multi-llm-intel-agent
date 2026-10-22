@@ -1,0 +1,7 @@
+# Only the inference gateway gets provider egress. The agent enforces ALLOW_CLOUD.
+services:
+  gateway:
+    networks: [private, cloud]
+
+networks:
+  cloud: {}

@@ -1,0 +1,5 @@
+litellm[proxy]==1.106.2
+# LiteLLM's authentication error handler imports Prisma even without a database.
+prisma>=0.15,<1
+pydantic-settings>=2.7,<3
+pyyaml>=6,<7

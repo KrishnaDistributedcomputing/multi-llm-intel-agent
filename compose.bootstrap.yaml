@@ -1,0 +1,7 @@
+# Temporary egress for the Ollama daemon to download the approved model.
+services:
+  ollama:
+    networks: [private, download]
+
+networks:
+  download: {}

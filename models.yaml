@@ -1,0 +1,71 @@
+models:
+  - id: local-qwen3
+    label: Qwen3 4B / Intel CPU
+    kind: local
+    model: ollama_chat/qwen3:4b
+    enabled: true
+
+  # Set enabled: true only for routes you intend to use.
+  # Cloud routes also require ALLOW_CLOUD=true and compose.cloud.yaml.
+  - id: openai
+    label: OpenAI
+    kind: cloud
+    model: openai/gpt-4o-mini
+    key_env: OPENAI_API_KEY
+    enabled: false
+  - id: anthropic
+    label: Anthropic
+    kind: cloud
+    model: anthropic/claude-sonnet-4-20250514
+    key_env: ANTHROPIC_API_KEY
+    enabled: false
+  - id: gemini
+    label: Gemini
+    kind: cloud
+    model: gemini/gemini-2.5-flash
+    key_env: GEMINI_API_KEY
+    enabled: false
+  - id: azure
+    label: Azure OpenAI
+    kind: cloud
+    model: azure/REPLACE_WITH_DEPLOYMENT
+    api_base: https://REPLACE_WITH_RESOURCE.openai.azure.com
+    api_version: "2024-10-21"
+    key_env: AZURE_API_KEY
+    enabled: false
+  - id: compatible
+    label: OpenAI-compatible endpoint
+    kind: cloud
+    model: openai/REPLACE_WITH_MODEL
+    api_base: https://REPLACE_WITH_ENDPOINT/v1
+    key_env: COMPATIBLE_API_KEY
+    enabled: false
+
+  # Development candidates, not approved for federal nonpublic information.
+  # Set each full downloaded digest after reviewing its source and license.
+  - id: local-qwen3-small
+    label: Qwen3 1.7B / Intel CPU
+    kind: local
+    model: ollama_chat/qwen3:1.7b
+    enabled: true
+    approved_digest: "sha256:8f68893c685c3ddff2aa3fffce2aa60a30bb2da65ca488b61fff134a4d1730e7"
+  - id: local-llama32
+    label: Llama 3.2 3B / Intel CPU
+    kind: local
+    model: ollama_chat/llama3.2:3b
+    # Retain the weights, but do not route to this failed tool-inference candidate.
+    enabled: false
+    approved_digest: "sha256:a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72"
+
+  - id: local-phi4-mini
+    label: Microsoft Phi-4 Mini 3.8B / Intel CPU
+    kind: local
+    model: ollama_chat/phi4-mini:3.8b
+    enabled: true
+    approved_digest: "sha256:78fad5d182a7c33065e153a5f8ba210754207ba9d91973f57dffa7f487363753"
+  - id: local-llama32-small
+    label: Meta Llama 3.2 1B / Intel CPU
+    kind: local
+    model: ollama_chat/llama3.2:1b
+    enabled: true
+    approved_digest: "sha256:baf6a787fdffd633537aa2eb51cfd54cb93ff08e28040095462bb63daf552878"

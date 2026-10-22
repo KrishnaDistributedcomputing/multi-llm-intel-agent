@@ -1,0 +1,1 @@
+"""Allowlisted LiteLLM gateway configuration."""

@@ -1,0 +1,41 @@
+name: intel-agent-federal-review
+
+services:
+  agent:
+    image: intel-agent-review/agent:0.1.0
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DEPLOYMENT_PROFILE: federal-review
+      ALLOW_CLOUD: "false"
+      AGENT_API_KEY: ${REVIEW_AGENT_API_KEY:?Generate a separate review agent secret}
+      LITELLM_MASTER_KEY: ${REVIEW_GATEWAY_KEY:?Generate a different review gateway secret}
+    networks: [review]
+    read_only: true
+    tmpfs: ["/tmp:uid=10001,gid=10001,mode=1770"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1
+    restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test:
+        - CMD
+        - .venv/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  review:
+    internal: true
