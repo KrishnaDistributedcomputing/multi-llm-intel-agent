@@ -54,11 +54,19 @@ class GatewaySettings(BaseSettings):
 class Settings(GatewaySettings):
     agent_api_key: SecretStr = Field(min_length=32)
     usage_db_path: Path = Path("data/usage.sqlite3")
+    temporal_enabled: bool = False
+    temporal_address: str = "temporal:7233"
+    temporal_namespace: str = "default"
+    temporal_task_queue: str = "document-processing"
+    document_data_path: Path = Path("data/documents")
+    document_agent_url: str = "http://agent:8000"
 
     @model_validator(mode="after")
     def validate_secrets(self) -> "Settings":
         if self.agent_api_key == self.litellm_master_key:
             raise ValueError("Agent and gateway secrets must be different")
+        if self.deployment_profile == "federal-review" and self.temporal_enabled:
+            raise ValueError("Temporal processing is forbidden in the federal-review profile")
         return self
 
 

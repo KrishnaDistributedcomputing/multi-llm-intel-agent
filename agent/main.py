@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from agent.config import DEVELOPMENT_NOTICE, REVIEW_NOTICE, Settings, load_catalog
+from agent.document_api import DocumentService, document_router
+from agent.documents import MAX_UPLOAD_BYTES
 from agent.runtime import AgentError, Runtime
 from agent.usage import UsageFilter, UsageStore, UsageStoreError
 
@@ -60,8 +62,9 @@ class FederalReviewBoundary:
 
 
 class BodyLimit:
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, document_uploads: bool = False) -> None:
         self.app = app
+        self.document_uploads = document_uploads
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -69,13 +72,22 @@ class BodyLimit:
             return
         chunks: list[Message] = []
         size = 0
+        limit = (
+            MAX_UPLOAD_BYTES
+            if self.document_uploads and scope["method"] == "POST"
+            and scope["path"] in ("/document-workflows", "/ui-api/document-workflows")
+            else 16384
+        )
         while True:
             message = await receive()
             if message["type"] == "http.disconnect":
                 return
             size += len(message.get("body", b""))
-            if size > 16384:
-                await JSONResponse({"detail": "Request body exceeds 16 KiB"}, 413)(
+            if size > limit:
+                detail = "Document upload exceeds 64 MiB JSON" if limit > 16384 else (
+                    "Request body exceeds 16 KiB"
+                )
+                await JSONResponse({"detail": detail}, 413)(
                     scope, receive, send
                 )
                 return
@@ -99,6 +111,7 @@ class AgentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model: str = Field(min_length=1, max_length=48)
     message: str = Field(min_length=1, max_length=6000, pattern=r"\S")
+    require_local: bool = False
 
 
 class AgentResponse(BaseModel):
@@ -141,7 +154,7 @@ def create_app(settings: Settings | None = None, *, background_verify: bool = Tr
         redoc_url=None,
         openapi_url=None,
     )
-    app.add_middleware(BodyLimit)
+    app.add_middleware(BodyLimit, document_uploads=config.temporal_enabled)
     if config.deployment_profile == "federal-review":
         app.add_middleware(FederalReviewBoundary)
 
@@ -169,6 +182,9 @@ def create_app(settings: Settings | None = None, *, background_verify: bool = Tr
             raise HTTPException(403, "Cross-site UI access is not allowed")
 
     local_ui = [Depends(authenticate_local_ui)]
+    documents = DocumentService(config)
+    app.state.documents = documents
+    app.include_router(document_router(documents, lambda: app.state.runtime, auth, local_ui))
 
     @app.middleware("http")
     async def headers(
@@ -246,6 +262,8 @@ def create_app(settings: Settings | None = None, *, background_verify: bool = Tr
     @app.post("/agent", dependencies=auth, response_model=AgentResponse)
     async def agent(body: AgentRequest, request: Request) -> AgentResponse:
         runtime: Runtime = request.app.state.runtime
+        if body.require_local and runtime.resolve(body.model).kind != "local":
+            raise HTTPException(403, "This request requires a local model")
         return AgentResponse(model=body.model, answer=await runtime.run(body.model, body.message))
 
     return app

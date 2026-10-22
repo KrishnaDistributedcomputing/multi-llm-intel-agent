@@ -40,6 +40,13 @@
     #usage-status{font-size:12px;color:var(--muted);overflow-wrap:anywhere}#usage-status.error{color:var(--error)}#usage-status:empty{display:none}
     select:hover:not(:disabled){background:#dce6d6}select:active:not(:disabled){transform:translateY(1px)}
     [hidden]{display:none!important}
+    .workflow-card{margin-top:24px}.workflow-card h2{font:26px/1.3 Georgia,serif;letter-spacing:-.03em;margin:0 0 14px}
+    .workflow-consent{display:flex;align-items:flex-start;gap:10px;margin:18px 0;font-size:12px;color:var(--muted)}
+    .workflow-consent input{width:auto;flex-shrink:0;margin-top:5px;accent-color:var(--accent)}.workflow-consent input:hover{accent-color:var(--ink)}.workflow-consent input:active{transform:scale(.95)}.workflow-id{width:100%;margin:8px 0 14px}
+    .workflow-id:hover{border-color:var(--accent)}.workflow-id:active{border-color:var(--ink)}
+    #workflow-status{font-size:12px;overflow-wrap:anywhere}#workflow-status.error{color:var(--error)}
+    #workflow-progress{width:100%;accent-color:var(--accent);margin:12px 0}
+    #workflow-results{display:grid;gap:12px;margin:18px 0}.workflow-answer{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
     .document-card{padding:22px;background:var(--white);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 3px 5px #23473404,0 16px 40px #23473408;margin-bottom:20px}
     .document-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}.document-card label{display:block;font-size:12px;color:var(--muted)}.document-card input{max-width:100%;padding:8px;border:1px solid var(--line);border-radius:7px;background:var(--paper);color:var(--ink)}.document-fields input{width:100%}.document-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.document-preview{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;font:13px/1.7 "Segoe UI",Arial,sans-serif;padding:16px;background:var(--paper);border:1px solid var(--line);border-radius:10px}
     #document-status{font-size:12px;color:var(--muted);overflow-wrap:anywhere}#document-status.error{color:var(--error)}#chunk-number{width:88px}.document-card textarea{border:1px solid var(--line);border-radius:7px;padding:10px;margin:8px 0 16px}
@@ -95,7 +102,7 @@
       <section id="documents-panel" role="tabpanel" aria-labelledby="documents-tab" hidden>
         <p class="eyebrow">One document. Manageable pieces.</p>
         <h1 class="usage-heading">Make room to <em>understand.</em></h1>
-        <p class="usage-lead">Split UTF-8 .txt or .md files up to 10 MiB on this device. Only a chunk you explicitly send leaves the browser. Public or synthetic data only.</p>
+        <p class="usage-lead">Split UTF-8 .txt or .md files up to 10 MiB on this device. Manual sends upload one selected chunk. Optional Temporal processing uploads the whole document after confirmation. Public or synthetic data only.</p>
         <form id="document-form" class="document-card">
           <label for="document-file">Choose a text document</label>
           <input id="document-file" type="file" accept=".txt,.md,text/plain,text/markdown" required>
@@ -106,7 +113,7 @@
           <p class="usage-meta">Overlap must be at most half the chunk size. Paragraph and word boundaries are preferred. Bytes are not tokens; the 4,096-token context also needs room for instructions, tools and answers.</p>
           <div class="document-actions"><button id="document-split" class="small-button" type="submit">Split document</button><button id="document-clear" class="text-button" type="button">Clear document</button></div>
         </form>
-        <p id="document-status" role="status" aria-live="polite">No document loaded. Documents and chunks are not saved by this app.</p>
+        <p id="document-status" role="status" aria-live="polite">No document loaded. Local preview does not save documents or chunks.</p>
         <section id="document-results" class="document-card" aria-label="Document chunks" hidden>
           <div class="document-actions"><label for="chunk-number">Chunk <input id="chunk-number" type="number" min="1" step="1" value="1"></label><span id="chunk-count" class="utility"></span><button id="document-download" class="text-button" type="button">Download JSON</button></div>
           <p id="chunk-meta" class="usage-meta"></p>
@@ -115,7 +122,20 @@
           <textarea id="chunk-instruction" maxlength="600" required>Summarize this excerpt, preserving important facts and noting missing context.</textarea>
           <p id="document-model" class="usage-meta"></p>
           <div class="document-actions"><button id="chunk-send" class="small-button" type="button" disabled>Send this chunk</button><button id="document-model-select" class="text-button" type="button">Choose model in Conversation</button></div>
-          <p class="usage-meta">Each send starts a fresh context. Results appear in Conversation and count toward token usage. No automatic batch processing or combined summary.</p>
+          <p class="usage-meta">Each manual send starts a fresh context. Results appear in Conversation and count toward token usage. Manual sends do not batch chunks or generate a combined summary.</p>
+        </section>
+        <section class="document-card workflow-card" aria-labelledby="workflow-heading">
+          <h2 id="workflow-heading">Process with <em>Temporal.</em></h2>
+          <p class="usage-meta">Automatically process every chunk, one at a time, with the verified local model selected in Conversation. Each chunk uses the processing instruction above and a fresh context. Results remain separate; no combined summary is generated.</p>
+          <label class="workflow-consent"><input id="workflow-consent" type="checkbox">I confirm this is public or synthetic data. Starting a workflow uploads the entire document and saves its text, instruction, and results on the server. Temporal keeps workflow metadata and history. Clear document does not delete these artifacts.</label>
+          <div class="document-actions"><button id="workflow-start" class="small-button" type="button" disabled>Process all chunks</button><button id="workflow-cancel" class="text-button" type="button" disabled>Cancel workflow</button></div>
+          <label for="workflow-id">Workflow ID (keep this ID to resume monitoring after a reload)</label>
+          <input id="workflow-id" class="workflow-id" type="text" maxlength="36" placeholder="Paste a workflow ID to load its progress" autocomplete="off" spellcheck="false">
+          <div class="document-actions"><button id="workflow-refresh" class="text-button" type="button">Load / refresh workflow</button><button id="workflow-download" class="text-button" type="button" disabled>Download results JSON</button></div>
+          <p id="workflow-status" role="status" aria-live="polite">Checking Temporal availability...</p>
+          <progress id="workflow-progress" max="1" value="0" hidden aria-label="Completed document chunks"></progress>
+          <div id="workflow-results" aria-label="Processed chunk results"></div>
+          <div class="document-actions"><button id="workflow-previous" class="text-button" type="button" disabled>Previous results</button><span id="workflow-page" class="utility"></span><button id="workflow-next" class="text-button" type="button" disabled>Next results</button></div>
         </section>
       </section>
       <section id="usage-panel" role="tabpanel" aria-labelledby="usage-tab" hidden>
@@ -200,7 +220,9 @@
   const $ = id => document.getElementById(id);
   let busy = false;
   let available = [], activeTab = "conversation", usageGeneration = 0;
-  let documentData = null, documentGeneration = 0;
+  let documentData = null, documentText = "", documentGeneration = 0;
+  let workflowEnabled = false, workflowActive = false, workflowSubmitting = false;
+  let workflowTimer = null, workflowGeneration = 0, workflowOffset = 0, workflowReport = null;
   const numbers = new Intl.NumberFormat();
   function switchTab(name) {
     activeTab = name;
@@ -271,13 +293,16 @@
   function notice(message) { $("notice").textContent = message; }
   function controls() {
     const ready = available.some(m => m.id === $("model").value && m.ready && m.enabled);
-    $("send").disabled = busy || !ready;
-    $("model").disabled = busy || available.length === 0;
+    $("send").disabled = busy || workflowActive || workflowSubmitting || !ready;
+    $("model").disabled = busy || workflowActive || workflowSubmitting || available.length === 0;
     $("clear-conversation").disabled = busy;
     $("model-dot").classList.toggle("online", ready);
-    $("chunk-send").disabled = busy || !ready || !documentData;
+    $("chunk-send").disabled = $("send").disabled || !documentData;
     const selected = available.find(m => m.id === $("model").value);
     $("document-model").textContent = selected ? `Selected model: ${selected.label} (${selected.kind === "cloud" ? "external provider" : "local"}). ${ready ? "" : "Not ready."}` : "No verified model available. Chunking and download still work.";
+    $("workflow-start").disabled = !workflowEnabled || !documentData || !ready || selected?.kind !== "local" || busy || workflowActive || workflowSubmitting || !$("workflow-consent").checked;
+    $("workflow-cancel").disabled = !workflowActive || workflowSubmitting;
+    $("workflow-id").disabled = workflowSubmitting;
   }
   async function api(path, options = {}) {
     const response = await fetch(`/ui-api${path}`, {
@@ -350,10 +375,11 @@
     $("document-status").textContent = text; $("document-status").classList.toggle("error", error);
   }
   function clearDocument() {
-    ++documentGeneration; documentData = null; $("document-results").hidden = true;
+    ++documentGeneration; documentData = null; documentText = ""; $("document-results").hidden = true;
     $("document-file").value = ""; $("document-split").disabled = false;
+    $("workflow-consent").checked = false;
     $("chunk-preview").textContent = ""; controls();
-    documentStatus("Document cleared from this workspace. Downloaded files and messages already sent are not removed.");
+    documentStatus("Document cleared from this browser workspace. Workflow processing, server artifacts, downloaded files, and messages already sent are not removed.");
   }
   function selectedChunk() {
     const index = Number($("chunk-number").value);
@@ -375,7 +401,7 @@
   $("document-form").addEventListener("submit", async event => {
     event.preventDefault();
     const generation = ++documentGeneration;
-    documentData = null; $("document-results").hidden = true; $("chunk-preview").textContent = ""; controls();
+    documentData = null; documentText = ""; $("document-results").hidden = true; $("chunk-preview").textContent = ""; controls();
     $("document-split").disabled = true; documentStatus("Reading and splitting on this device...");
     try {
       const file = $("document-file").files[0];
@@ -388,6 +414,7 @@
       catch { throw new Error("The document is not valid UTF-8. Save it as UTF-8 text and try again."); }
       const maxBytes = Number($("chunk-size").value), overlapBytes = Number($("chunk-overlap").value);
       const chunks = splitDocument(text, maxBytes, overlapBytes);
+      documentText = text;
       documentData = { version: 1, name: file.name, size_bytes: file.size, max_chunk_bytes: maxBytes, overlap_bytes: overlapBytes, offset_unit: "UTF-16 code units, end exclusive", chunks };
       $("chunk-number").value = "1"; $("chunk-number").max = String(chunks.length);
       $("chunk-count").textContent = `of ${numbers.format(chunks.length)}`;
@@ -396,17 +423,20 @@
     finally { if (generation === documentGeneration) $("document-split").disabled = false; }
   });
   $("document-file").addEventListener("change", () => {
-    ++documentGeneration; documentData = null; $("document-results").hidden = true;
+    ++documentGeneration; documentData = null; documentText = ""; $("document-results").hidden = true;
+    $("workflow-consent").checked = false;
     $("chunk-preview").textContent = ""; $("document-split").disabled = false; controls();
     documentStatus("Ready to split the selected file on this device.");
   });
   $("document-clear").addEventListener("click", clearDocument);
   $("chunk-number").addEventListener("input", previewChunk);
-  $("document-download").addEventListener("click", () => {
-    if (!documentData) return;
-    const url = URL.createObjectURL(new Blob([JSON.stringify(documentData, null, 2)], { type: "application/json" }));
-    const link = document.createElement("a"); link.href = url; link.download = `${documentData.name}.chunks.json`;
+  function downloadJSON(data, filename) {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a"); link.href = url; link.download = filename;
     document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  $("document-download").addEventListener("click", () => {
+    if (documentData) downloadJSON(documentData, `${documentData.name}.chunks.json`);
   });
   $("chunk-send").addEventListener("click", async () => {
     if ($("chunk-send").disabled) return;
@@ -417,6 +447,119 @@
     } catch (error) { documentStatus(error.message, true); }
   });
   $("document-model-select").addEventListener("click", () => { switchTab("conversation"); $("model").focus(); });
+  function workflowStatus(text, error = false) {
+    $("workflow-status").textContent = text;
+    $("workflow-status").classList.toggle("error", error);
+  }
+  async function workflowConfiguration() {
+    try {
+      const config = await api("/document-workflows/config");
+      workflowEnabled = config.enabled;
+      if (!workflowEnabled) workflowStatus("Temporal is disabled. Start the optional compose.temporal.yaml development stack to enable automatic processing. Local preview and manual chunk sending still work.");
+      else if (!workflowReport) workflowStatus("Temporal is enabled. Split a public or synthetic document, review its instruction, and confirm persistence before starting.");
+      controls();
+    } catch (error) { workflowEnabled = false; controls(); workflowStatus(`Temporal configuration unavailable: ${error.message}`, true); }
+  }
+  function renderWorkflow(report) {
+    workflowReport = report;
+    workflowActive = ["RUNNING", "CONTINUED_AS_NEW"].includes(report.status);
+    const terminalError = ["FAILED", "TIMED_OUT", "TERMINATED", "CANCELED"].includes(report.status);
+    let detail = `${report.status}: ${numbers.format(report.completed)} of ${numbers.format(report.total)} chunks completed.`;
+    if (terminalError) detail += " Partial results are retained. Inference may already have run; resubmitting a document can repeat processing.";
+    workflowStatus(detail, terminalError);
+    $("workflow-progress").hidden = false;
+    $("workflow-progress").max = report.total; $("workflow-progress").value = report.completed;
+    $("workflow-results").replaceChildren(...report.results.map(result => {
+      const element = document.createElement("div"); element.className = "message";
+      const title = document.createElement("small"); title.textContent = `Chunk ${result.index}`;
+      const answer = document.createElement("p"); answer.className = "workflow-answer"; answer.textContent = result.answer;
+      element.append(title, answer); return element;
+    }));
+    $("workflow-page").textContent = report.results.length ? `Results ${report.offset + 1} to ${report.offset + report.results.length}` : "No completed chunk results on this page.";
+    $("workflow-previous").disabled = workflowOffset === 0;
+    $("workflow-next").disabled = workflowOffset + 20 >= report.completed;
+    $("workflow-download").disabled = report.completed === 0;
+    controls();
+  }
+  async function refreshWorkflow() {
+    clearTimeout(workflowTimer);
+    const generation = ++workflowGeneration;
+    const id = $("workflow-id").value.trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      workflowStatus("Enter a valid workflow UUID to load its status.", true); return;
+    }
+    try {
+      const report = await api(`/document-workflows/${id}?offset=${workflowOffset}&limit=20`);
+      if (generation !== workflowGeneration || id !== $("workflow-id").value.trim()) return;
+      renderWorkflow(report);
+      if (workflowActive) workflowTimer = setTimeout(refreshWorkflow, 3000);
+    } catch (error) {
+      if (generation === workflowGeneration) workflowStatus(`Could not load workflow: ${error.message} Monitoring paused; use Load / refresh workflow to retry.`, true);
+    }
+  }
+  $("workflow-consent").addEventListener("change", controls);
+  $("workflow-id").addEventListener("input", () => {
+    clearTimeout(workflowTimer); ++workflowGeneration;
+    workflowReport = null; workflowActive = false; workflowOffset = 0;
+    $("workflow-results").replaceChildren(); $("workflow-progress").hidden = true;
+    $("workflow-download").disabled = true; $("workflow-previous").disabled = true;
+    $("workflow-next").disabled = true; $("workflow-page").textContent = "";
+    workflowStatus("Load the entered workflow ID to monitor it. Previously started jobs continue running.");
+    controls();
+  });
+  $("workflow-start").addEventListener("click", async () => {
+    if ($("workflow-start").disabled) return;
+    const id = crypto.randomUUID();
+    const instruction = $("chunk-instruction").value;
+    try { chunkMessage(instruction, documentData.chunks[0]); }
+    catch (error) { workflowStatus(error.message, true); return; }
+    clearTimeout(workflowTimer); ++workflowGeneration; workflowOffset = 0; workflowReport = null;
+    $("workflow-results").replaceChildren(); $("workflow-progress").hidden = true;
+    $("workflow-page").textContent = "";
+    $("workflow-download").disabled = true; $("workflow-previous").disabled = true; $("workflow-next").disabled = true;
+    $("workflow-id").value = id; workflowSubmitting = true; controls();
+    workflowStatus("Uploading the document and starting a durable workflow...");
+    try {
+      await api("/document-workflows", { method: "POST", body: JSON.stringify({
+        id, name: documentData.name, text: documentText, model: $("model").value, instruction,
+        max_chunk_bytes: documentData.max_chunk_bytes, overlap_bytes: documentData.overlap_bytes,
+      }) });
+      workflowActive = true;
+    } catch (error) {
+      workflowStatus(`Submission not confirmed: ${error.message} Keep workflow ID ${id} and load its status before submitting again.`, true);
+    } finally { workflowSubmitting = false; controls(); }
+    if (workflowActive) await refreshWorkflow();
+  });
+  $("workflow-refresh").addEventListener("click", async () => {
+    await workflowConfiguration();
+    if ($("workflow-id").value.trim()) { workflowOffset = 0; await refreshWorkflow(); }
+  });
+  $("workflow-cancel").addEventListener("click", async () => {
+    if (!workflowReport || !workflowActive) return;
+    $("workflow-cancel").disabled = true;
+    try {
+      const result = await api(`/document-workflows/${workflowReport.id}/cancel`, { method: "POST", body: "{}" });
+      workflowStatus(result.detail);
+      await refreshWorkflow();
+    } catch (error) { workflowStatus(error.message, true); controls(); }
+  });
+  for (const [id, direction] of [["workflow-previous", -1], ["workflow-next", 1]]) {
+    $(id).addEventListener("click", async () => { workflowOffset = Math.max(0, workflowOffset + direction * 20); await refreshWorkflow(); });
+  }
+  $("workflow-download").addEventListener("click", async () => {
+    if (!workflowReport) return;
+    $("workflow-download").disabled = true;
+    const snapshot = workflowReport;
+    try {
+      const results = [];
+      for (let offset = 0; offset < snapshot.completed; offset += 100) {
+        const page = await api(`/document-workflows/${snapshot.id}?offset=${offset}&limit=100`);
+        results.push(...page.results.filter(result => result.index <= snapshot.completed));
+      }
+      downloadJSON({ ...snapshot, offset: 0, results }, `${snapshot.name}.results.json`);
+    } catch (error) { workflowStatus(`Result download failed: ${error.message}`, true); }
+    finally { $("workflow-download").disabled = !workflowReport?.completed; }
+  });
   $("clear-conversation").addEventListener("click", clearConversation);
   $("model").addEventListener("change", controls);
   $("conversation-tab").addEventListener("click", () => switchTab("conversation"));
@@ -436,6 +579,7 @@
     $("prompt").value = button.dataset.prompt; $("prompt").focus();
   }));
   refreshModels();
+  workflowConfiguration();
   setInterval(() => {
     if (activeTab === "usage") refreshUsage();
     if (!busy) refreshModels();

@@ -23,7 +23,9 @@ http.createServer(async (req, res) => {
     }
     return;
   }
-  if (!routes.has(new URL(req.url, "http://localhost").pathname)) {
+  const pathname = new URL(req.url, "http://localhost").pathname;
+  const documentRoute = /^\/(?:ui-api\/)?document-workflows(?:\/(?:config|[0-9a-f-]{36})(?:\/cancel)?)?$/.test(pathname);
+  if (!routes.has(pathname) && !documentRoute) {
     res.writeHead(404).end();
     return;
   }

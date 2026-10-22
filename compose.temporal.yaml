@@ -1,0 +1,75 @@
+# Development only. Use with compose.yaml, never with compose.review.yaml.
+services:
+  temporal:
+    image: temporalio/temporal:1.6.1
+    command:
+      - server
+      - start-dev
+      - --ip
+      - 0.0.0.0
+      - --headless
+      - --db-filename
+      - /home/temporal/temporal.db
+    volumes:
+      - temporal-state:/home/temporal
+    networks: [private]
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "127.0.0.1:7233"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  agent:
+    environment:
+      TEMPORAL_ENABLED: "true"
+      TEMPORAL_ADDRESS: temporal:7233
+      DOCUMENT_DATA_PATH: /app/documents
+    volumes:
+      - document-artifacts:/app/documents
+    depends_on:
+      temporal:
+        condition: service_healthy
+    mem_limit: 1g
+
+  document-worker:
+    image: ${ACR_LOGIN_SERVER:-intel-agent-local}/agent:${IMAGE_TAG:-0.1.0}
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: [".venv/bin/python", "-m", "agent.document_worker"]
+    environment:
+      AGENT_API_KEY: ${AGENT_API_KEY:?Set AGENT_API_KEY}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY}
+      TEMPORAL_ENABLED: "true"
+      TEMPORAL_ADDRESS: temporal:7233
+      DOCUMENT_DATA_PATH: /app/documents
+      DOCUMENT_AGENT_URL: http://agent:8000
+    volumes:
+      - document-artifacts:/app/documents
+    networks: [private]
+    depends_on:
+      temporal:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:uid=10001,gid=10001,mode=1770"]
+    mem_limit: 512m
+    cpus: 1
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  ingress:
+    environment:
+      TEMPORAL_ENABLED: "true"
+    mem_limit: 384m
+
+volumes:
+  temporal-state:
+  document-artifacts:

@@ -1,6 +1,7 @@
 """Fixed-destination localhost ingress; inference services remain on a private network."""
 
 import logging
+import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
@@ -21,6 +22,14 @@ ROUTES = {
     "/ui-api/models": ["GET"],
     "/ui-api/usage": ["GET"],
     "/ui-api/agent": ["POST"],
+    "/document-workflows/config": ["GET"],
+    "/document-workflows": ["POST"],
+    "/document-workflows/{job_id}": ["GET"],
+    "/document-workflows/{job_id}/cancel": ["POST"],
+    "/ui-api/document-workflows/config": ["GET"],
+    "/ui-api/document-workflows": ["POST"],
+    "/ui-api/document-workflows/{job_id}": ["GET"],
+    "/ui-api/document-workflows/{job_id}/cancel": ["POST"],
 }
 REQUEST_HEADERS = ("host", "authorization", "origin", "sec-fetch-site", "content-type")
 RESPONSE_HEADERS = (
@@ -45,7 +54,7 @@ def create_app() -> FastAPI:
             yield
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
-    app.add_middleware(BodyLimit)
+    app.add_middleware(BodyLimit, document_uploads=os.environ.get("TEMPORAL_ENABLED") == "true")
 
     @app.middleware("http")
     async def headers(

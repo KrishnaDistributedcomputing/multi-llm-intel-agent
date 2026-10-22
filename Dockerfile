@@ -6,7 +6,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project \
     && groupadd --gid 10001 agent && useradd --uid 10001 --gid agent agent \
-    && mkdir /app/data && chown 10001:10001 /app/data
+    && mkdir /app/data /app/documents && chown 10001:10001 /app/data /app/documents
 COPY agent ./agent
 COPY models.yaml ./
 USER 10001:10001

@@ -51,6 +51,13 @@ without sending it for inference.
 
 ![Document workspace showing a synthetic text file and its chunk preview](docs/screenshots/documents.png)
 
+### Temporal document workflow
+
+Process all chunks sequentially, monitor durable progress, and download per-chunk
+results. This live synthetic example completed four calculator requests.
+
+![Temporal workflow with completed progress and four saved chunk results](docs/screenshots/temporal-workflow.png)
+
 ### Token usage
 
 Inspect provider-reported input, output, and total tokens, with per-model
@@ -279,24 +286,109 @@ Preview one chunk by number, download all chunks as JSON, or enter an
 instruction and send the selected chunk to the model chosen in Conversation.
 Only verified models can receive chunks. Each send starts a fresh context;
 answers appear in Conversation and usage is recorded as chat. There is no
-automatic batch processing or combined document summary. If cloud routes
+automatic batch processing in this manual path or combined document summary. If cloud routes
 are explicitly enabled, sending to a cloud model sends that excerpt to its provider.
 Request-size checks include JSON escaping; reduce the chunk size if rejected.
 
 Splitting and preview happen in browser memory without uploading the document.
-Documents and chunks are not persisted by the app and disappear on refresh.
+Local previews are not persisted by the app and disappear on refresh.
 Clear document removes the loaded document, not downloaded JSON or messages
 already sent. JSON includes the original filename, chunk text, UTF-8 byte
 lengths, and zero-based UTF-16 source offsets (end exclusive). Overlapping
 chunks intentionally repeat text. Binary, UTF-16, invalid UTF-8, and empty
 documents are rejected. Only public or synthetic documents are permitted.
 
+### Automatic document processing with Temporal
+
+The optional local Temporal stack adds durable, sequential processing to the
+Documents tab. It is disabled by default and is available only in development
+mode. It never enables processing in the federal review hold.
+
+After configuring the normal development secrets and approving a local model,
+start the stack:
+
+```bash
+docker compose -f compose.yaml -f compose.temporal.yaml up -d --build
+docker compose -f compose.yaml -f compose.temporal.yaml logs -f document-worker
+```
+
+Open the Documents tab, split a public or synthetic UTF-8 document, and enter a
+processing instruction in the chunk preview. Choose a verified local model in
+Conversation, confirm the persistence notice, then select Process all chunks.
+The browser uploads the whole document once. The server validates and splits it
+again; its chunk count is authoritative. The 10 MiB document limit still applies,
+with a maximum of 10,000 chunks. Increase the chunk size or reduce overlap if the
+chunk count exceeds that limit. JSON uploads are bounded to 64 MiB to allow for
+escaping; ordinary agent requests remain limited to 16 KiB.
+
+Keep the workflow ID shown in the tab. Use Load / refresh workflow to resume
+monitoring after a browser reload. Progress refreshes every three seconds while
+the workflow runs. Results are paginated, and Download results JSON exports a
+snapshot of the completed chunks. Closing the browser or clearing the local
+preview does not cancel a workflow. Cancel workflow requests cancellation;
+in-flight inference may still finish. Partial results remain available after
+failure or cancellation.
+
+Each chunk is processed through the existing authenticated `/agent` endpoint,
+using the same readiness checks, tool policy, and usage recording as chat.
+Only local models are permitted for automatic processing, even when cloud routes
+are enabled. The worker runs one activity at a time across document jobs to
+respect the CPU/model concurrency limit. Independent manual/API calls can still
+contend with the worker and fail explicitly. Browser chat sending is paused while
+the displayed workflow is running.
+
+Temporal receives only job IDs, chunk indexes, and counts, not document text,
+instructions, or answers. These contents are stored separately in the local
+`document-artifacts` volume; Temporal history and execution state are stored in
+`temporal-state`. Both volumes persist across container restarts. Do not remove
+either volume while retaining the other and expecting resumable processing.
+Clear document does not delete these server artifacts. There is no automatic
+retention policy: keep only synthetic/public material, apply a deliberate
+retention policy to these volumes, and remove them only after stopping the stack
+and confirming no retained jobs or results are needed.
+
+The workflow uses Continue-As-New after every 100 chunks to bound history.
+Completed results are saved atomically and reused if an activity encounters the
+same chunk again. Inference activities have one attempt, not automatic retries:
+a timeout or worker failure might occur after the model has already processed
+the chunk. This is not an exactly-once inference guarantee. Inspect failures
+before starting a new job, which can repeat inference and usage. An uncertain
+submission should be checked using its existing workflow ID before resubmission.
+Each chunk starts a fresh context, overlap intentionally repeats text, and no
+combined document summary is generated.
+
+The pinned Temporal development server uses SQLite persistence and publishes no
+host ports in Compose. The worker, agent, and Temporal communicate only over the
+existing private network. This development server is not a production Temporal
+deployment and has no agency authorization, multi-user identity, or encryption
+at rest supplied by this feature. Do not expose it or use it for nonpublic data.
+The existing manual chunk preview and sending path still works without Temporal.
+
+For a separately managed local development server, configure `TEMPORAL_ENABLED`,
+`TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TASK_QUEUE`,
+`DOCUMENT_DATA_PATH`, and `DOCUMENT_AGENT_URL` consistently for the API and worker.
+Run the worker with `uv run python -m agent.document_worker`; it requires the
+normal agent and gateway configuration and rejects the federal-review profile.
+API and worker processes must share the same document directory.
+
+Bearer-authenticated clients can use `GET /document-workflows/config`,
+`POST /document-workflows`, `GET /document-workflows/{id}?offset=0&limit=20`,
+and `POST /document-workflows/{id}/cancel`. Submission accepts a client-generated
+UUID `id`, `name`, UTF-8 `text`, a local `model` ID, `instruction`,
+`max_chunk_bytes`, and `overlap_bytes`. Reusing the same ID with the same document
+does not start another execution; reusing it for different content is rejected.
+Status includes the ID, filename, model, status, total/completed counts, offset,
+and ordered results containing a one-based chunk index and answer. Result page
+sizes are limited to 100.
+
 ### Local UI access
 
-The UI uses `/ui-api/models`, `/ui-api/agent`, and `/ui-api/usage`. These routes
+The UI uses `/ui-api/models`, `/ui-api/agent`, `/ui-api/usage`, and the
+`/ui-api/document-workflows` routes. These routes
 accept only loopback Host headers, reject cross-origin browser requests, and
-require a matching Origin for chat submissions. Anyone who can access this local
-UI can use chat and read usage; these checks are not individual user authentication.
+require a matching Origin for submissions and cancellation. Anyone who can access this local
+UI can use chat, read usage, and access enabled document jobs and their contents;
+these checks are not individual user authentication.
 Keep the loopback bindings in Compose and the development server. Do not expose
 or forward these UI routes to untrusted users. Direct REST routes still require
 the bearer token, including when accessed through the preview proxy.
@@ -516,7 +608,8 @@ Back up the named volumes and record approved digests before upgrades.
 
 The checked-in `uv.lock` was resolved using the TLS-verified Tsinghua PyPI mirror
 because the development network could not reach `files.pythonhosted.org`.
-It records mirror artifact URLs and hashes. The gateway requirements lock pins
+It records mirror artifact URLs and hashes, including the Temporal SDK and its
+dependencies. The gateway requirements lock pins
 versions and hashes but leaves the install index to pip (PyPI by default).
 If your build network has the same restriction, use
 `docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`.
@@ -531,12 +624,21 @@ uv run ruff check agent gateway tests
 uv run mypy
 node --test tests/test_documents.mjs
 docker compose config --quiet
+docker compose -f compose.yaml -f compose.temporal.yaml config --quiet
+```
+
+The Temporal integration test is opt-in and uses an explicitly selected,
+running local development server. It verifies 101 chunks, ordered saved results,
+and Continue-As-New without calling a real model:
+
+```bash
+TEST_TEMPORAL_ADDRESS=127.0.0.1:7233 uv run pytest tests/test_document_workflows.py
 ```
 
 To preview the UI independently, run `node serve.mjs`; it defaults to
 <http://localhost:3001> because port 3000 may be occupied. Set `PORT` to override.
-It serves only the UI and proxies the five REST/probe routes and three local UI
-routes to port 8000, never
+It serves only the UI and proxies the allowlisted REST/probe, local UI, and
+document workflow routes to port 8000, never
 exposing `.env` or the project root.
 For direct API development, export the required environment values and run
 `uv run uvicorn agent.main:create_app --factory --host 127.0.0.1 --port 8000`.
