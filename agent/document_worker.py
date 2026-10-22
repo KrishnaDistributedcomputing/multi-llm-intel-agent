@@ -12,7 +12,7 @@ from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
-from agent.config import Settings
+from agent.config import AGENT_REQUEST_TIMEOUT_SECONDS, Settings
 from agent.document_workflow import DocumentWorkflow
 from agent.documents import ChunkResult, DocumentStore
 
@@ -29,7 +29,7 @@ class DocumentActivities:
     async def process(self, job_id: str, index: int) -> None:
         async def heartbeat() -> None:
             while True:
-                activity.heartbeat()
+                activity.heartbeat(index + 1)
                 await asyncio.sleep(5)
 
         pulse = asyncio.create_task(heartbeat())
@@ -74,7 +74,8 @@ async def run_worker() -> None:
         raise ValueError("Document worker requires Temporal-enabled development mode")
     client = await Client.connect(settings.temporal_address, namespace=settings.temporal_namespace)
     async with httpx.AsyncClient(
-        base_url=settings.document_agent_url, timeout=490, trust_env=False
+        base_url=settings.document_agent_url,
+        timeout=httpx.Timeout(AGENT_REQUEST_TIMEOUT_SECONDS, connect=5), trust_env=False,
     ) as agent:
         activities = DocumentActivities(
             DocumentStore(settings.document_data_path), agent,

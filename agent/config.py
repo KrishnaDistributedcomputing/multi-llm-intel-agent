@@ -15,6 +15,9 @@ LOCAL_MODELS = frozenset(
 )
 CONTEXT_TOKENS = 4096
 OUTPUT_TOKENS = 512
+MODEL_LOAD_SECONDS = 300
+LOCAL_REQUEST_SECONDS = 900
+AGENT_REQUEST_TIMEOUT_SECONDS = MODEL_LOAD_SECONDS + LOCAL_REQUEST_SECONDS + 10
 DEVELOPMENT_NOTICE = (
     "Development only: public or synthetic data. Not authorized for federal nonpublic information."
 )

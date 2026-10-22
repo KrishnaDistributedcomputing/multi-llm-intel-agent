@@ -5,7 +5,13 @@ from pathlib import Path
 
 import yaml
 
-from agent.config import CONTEXT_TOKENS, Catalog, GatewaySettings, load_catalog
+from agent.config import (
+    CONTEXT_TOKENS,
+    LOCAL_REQUEST_SECONDS,
+    Catalog,
+    GatewaySettings,
+    load_catalog,
+)
 
 
 def build_config(settings: GatewaySettings, catalog: Catalog) -> dict[str, object]:
@@ -23,6 +29,7 @@ def build_config(settings: GatewaySettings, catalog: Catalog) -> dict[str, objec
                     "num_ctx": CONTEXT_TOKENS,
                     "num_gpu": 0,
                     "use_mmap": True,
+                    "timeout": LOCAL_REQUEST_SECONDS,
                 }
             )
             if route.ollama_model.startswith("qwen3:"):
@@ -54,7 +61,7 @@ def build_config(settings: GatewaySettings, catalog: Catalog) -> dict[str, objec
             "telemetry": False,
             "turn_off_message_logging": True,
             "drop_params": False,
-            "request_timeout": 120,
+            "request_timeout": LOCAL_REQUEST_SECONDS,
         },
         "router_settings": {"num_retries": 0},
     }

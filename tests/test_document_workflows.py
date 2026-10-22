@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -12,13 +13,18 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from temporalio.api.enums.v1 import PendingActivityState
+from temporalio.api.workflow.v1 import PendingActivityInfo
+from temporalio.api.workflowservice.v1 import DescribeWorkflowExecutionResponse
 from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import ActivityEnvironment
 from temporalio.worker import Worker
 from test_agent import ROOT, TEST_AGENT_KEY, settings, transport
 
+from agent.config import AGENT_REQUEST_TIMEOUT_SECONDS
 from agent.document_api import DocumentService
 from agent.document_worker import DocumentActivities
 from agent.document_workflow import DocumentRun, DocumentWorkflow
@@ -250,6 +256,120 @@ def test_document_upload_limit_does_not_expand_other_routes() -> None:
     asyncio.run(run())
 
 
+@pytest.mark.parametrize(
+    ("status", "activity_state", "expected_state", "expected_chunk"),
+    [
+        (WorkflowExecutionStatus.RUNNING, PendingActivityState.PENDING_ACTIVITY_STATE_STARTED,
+         "processing", 7),
+        (WorkflowExecutionStatus.RUNNING, PendingActivityState.PENDING_ACTIVITY_STATE_SCHEDULED,
+         "queued", None),
+        (
+            WorkflowExecutionStatus.RUNNING,
+            PendingActivityState.PENDING_ACTIVITY_STATE_CANCEL_REQUESTED, "cancelling", 7,
+        ),
+        (WorkflowExecutionStatus.COMPLETED, PendingActivityState.PENDING_ACTIVITY_STATE_STARTED,
+         "idle", None),
+    ],
+)
+def test_chunk_progress_uses_actual_heartbeat_not_completed_count(
+    tmp_path: Path, status: WorkflowExecutionStatus, activity_state: int,
+    expected_state: str, expected_chunk: int | None,
+) -> None:
+    async def run() -> None:
+        app = create_app(
+            settings(temporal_enabled=True, document_data_path=tmp_path), background_verify=False
+        )
+        service: DocumentService = app.state.documents
+        body = document(text="x" * 20000)
+        service.store.create(body)
+        temporal = MagicMock(spec=Client)
+        temporal.data_converter = DataConverter.default
+        pending = PendingActivityInfo(
+            activity_type={"name": "process_document_chunk"}, state=activity_state,
+            heartbeat_details={"payloads": await DataConverter.default.encode([7])},
+        )
+        temporal.get_workflow_handle.return_value.describe = AsyncMock(
+            return_value=SimpleNamespace(
+                status=status, raw_description=DescribeWorkflowExecutionResponse(
+                    pending_activities=[pending]
+                ),
+            )
+        )
+        service.client = temporal
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url="http://localhost"
+            ) as client:
+                report = (await client.get(f"/ui-api/document-workflows/{body.id}")).json()
+                assert report["completed"] == 0
+                assert report["current_chunk"] == expected_chunk
+                assert report["chunk_state"] == expected_state
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("heartbeat", [None, "bad", -1, True, 10000])
+def test_missing_or_invalid_chunk_heartbeats_are_not_guessed(
+    tmp_path: Path, heartbeat: object,
+) -> None:
+    async def run() -> None:
+        app = create_app(
+            settings(temporal_enabled=True, document_data_path=tmp_path), background_verify=False
+        )
+        service: DocumentService = app.state.documents
+        body = document()
+        service.store.create(body)
+        pending = PendingActivityInfo(
+            activity_type={"name": "process_document_chunk"},
+            state=PendingActivityState.PENDING_ACTIVITY_STATE_STARTED,
+        )
+        if heartbeat is not None:
+            pending.heartbeat_details.payloads.extend(
+                await DataConverter.default.encode([heartbeat])
+            )
+        temporal = MagicMock(spec=Client)
+        temporal.data_converter = DataConverter.default
+        temporal.get_workflow_handle.return_value.describe = AsyncMock(
+            return_value=SimpleNamespace(
+                status=WorkflowExecutionStatus.RUNNING,
+                raw_description=DescribeWorkflowExecutionResponse(pending_activities=[pending]),
+            )
+        )
+        service.client = temporal
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url="http://localhost"
+            ) as client:
+                response = await client.get(f"/ui-api/document-workflows/{body.id}")
+                if heartbeat is None:
+                    assert response.status_code == 200
+                    assert response.json()["current_chunk"] is None
+                    assert response.json()["chunk_state"] == "processing"
+                else:
+                    assert response.status_code == 503
+                    assert "invalid" in response.json()["detail"]
+
+    asyncio.run(run())
+
+
+def test_document_activity_deadline_and_preview_proxy_cover_slow_cpu_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def run() -> None:
+        activity = AsyncMock()
+        monkeypatch.setattr("agent.document_workflow.workflow.execute_activity", activity)
+        assert await DocumentWorkflow().run(DocumentRun(str(uuid4()), 1)) == 1
+        assert (
+            activity.call_args.kwargs["start_to_close_timeout"].total_seconds()
+            > AGENT_REQUEST_TIMEOUT_SECONDS
+        )
+        assert f"timeout: {AGENT_REQUEST_TIMEOUT_SECONDS * 1000}" in (
+            ROOT / "serve.mjs"
+        ).read_text()
+
+    asyncio.run(run())
+
+
 def test_activity_uses_agent_once_caches_results_and_sanitizes_failure(tmp_path: Path) -> None:
     async def run() -> None:
         store = DocumentStore(tmp_path)
@@ -270,9 +390,12 @@ def test_activity_uses_agent_once_caches_results_and_sanitizes_failure(tmp_path:
         ) as client:
             activities = DocumentActivities(store, client, TEST_AGENT_KEY)
             env = ActivityEnvironment()
+            heartbeats: list[tuple[object, ...]] = []
+            env.on_heartbeat = lambda *details: heartbeats.append(details)
             await env.run(activities.process, str(body.id), 0)
             await env.run(activities.process, str(body.id), 0)
             assert calls == 1
+            assert (1,) in heartbeats
             assert store.result(str(body.id), 0).answer == "Synthetic answer"
         async with httpx.AsyncClient(
             base_url="http://agent", transport=httpx.MockTransport(
@@ -421,5 +544,79 @@ def test_real_temporal_cancellation_stops_further_chunks(tmp_path: Path) -> None
                     await handle.result()
                 assert calls == 1
                 assert (await handle.describe()).status == WorkflowExecutionStatus.CANCELED
+
+    asyncio.run(run())
+
+
+@pytest.mark.skipif(
+    not os.environ.get("TEST_TEMPORAL_ADDRESS"),
+    reason="Requires an explicitly selected local server",
+)
+def test_real_temporal_reports_each_running_chunk_and_clears_it_on_completion(
+    tmp_path: Path,
+) -> None:
+    async def run() -> None:
+        temporal = await Client.connect(os.environ["TEST_TEMPORAL_ADDRESS"])
+        app = create_app(
+            settings(temporal_enabled=True, document_data_path=tmp_path), background_verify=False
+        )
+        service: DocumentService = app.state.documents
+        service.client = temporal
+        body = document(text="x" * 512, max_chunk_bytes=256, overlap_bytes=0)
+        service.store.create(body)
+        entered = [asyncio.Event(), asyncio.Event()]
+        release = [asyncio.Event(), asyncio.Event()]
+        calls = 0
+
+        async def upstream(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            index = calls
+            calls += 1
+            entered[index].set()
+            await release[index].wait()
+            return httpx.Response(200, json={"answer": f"Synthetic result {index + 1}"})
+
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                base_url="http://agent", transport=httpx.MockTransport(upstream)
+            ) as agent, httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url="http://localhost"
+            ) as api:
+                activities = DocumentActivities(service.store, agent, TEST_AGENT_KEY)
+                async with Worker(
+                    temporal, task_queue=f"progress-test-{body.id}",
+                    workflows=[DocumentWorkflow], activities=[activities.process],
+                    max_concurrent_activities=1,
+                ):
+                    handle = await temporal.start_workflow(
+                        DocumentWorkflow.run, DocumentRun(str(body.id), 2),
+                        id=str(body.id), task_queue=f"progress-test-{body.id}",
+                    )
+                    try:
+                        for index in range(2):
+                            await asyncio.wait_for(entered[index].wait(), 20)
+                            async with asyncio.timeout(20):
+                                while True:
+                                    response = await api.get(
+                                        f"/ui-api/document-workflows/{body.id}"
+                                    )
+                                    assert response.status_code == 200
+                                    report = response.json()
+                                    if report["current_chunk"] == index + 1:
+                                        break
+                                    await asyncio.sleep(0.2)
+                            assert report["chunk_state"] == "processing"
+                            assert report["completed"] == index
+                            release[index].set()
+                        assert await handle.result() == 2
+                        report = (await api.get(
+                            f"/ui-api/document-workflows/{body.id}"
+                        )).json()
+                        assert report["current_chunk"] is None
+                        assert report["chunk_state"] == "idle"
+                        assert report["completed"] == 2
+                    finally:
+                        for event in release:
+                            event.set()
 
     asyncio.run(run())

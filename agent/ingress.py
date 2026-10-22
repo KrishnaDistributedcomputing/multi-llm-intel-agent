@@ -9,6 +9,7 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
+from agent.config import AGENT_REQUEST_TIMEOUT_SECONDS
 from agent.main import BodyLimit
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with httpx.AsyncClient(
-            timeout=490, trust_env=False, follow_redirects=False
+            timeout=AGENT_REQUEST_TIMEOUT_SECONDS, trust_env=False, follow_redirects=False
         ) as client:
             app.state.client = client
             yield

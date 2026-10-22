@@ -8,7 +8,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.params import Depends
-from temporalio.client import Client
+from temporalio.api.enums.v1 import PendingActivityState
+from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
@@ -119,6 +120,39 @@ def document_router(
             logger.error("Document storage unavailable (%s)", type(exc).__name__)
             raise HTTPException(503, "Document storage is unavailable") from None
         report["status"] = description.status.name if description.status else "UNKNOWN"
+        report["current_chunk"] = None
+        report["chunk_state"] = "idle"
+        if description.status == WorkflowExecutionStatus.RUNNING:
+            report["chunk_state"] = "queued"
+            for pending in description.raw_description.pending_activities:
+                if pending.activity_type.name != "process_document_chunk":
+                    continue
+                if pending.state not in (
+                    PendingActivityState.PENDING_ACTIVITY_STATE_STARTED,
+                    PendingActivityState.PENDING_ACTIVITY_STATE_CANCEL_REQUESTED,
+                ):
+                    break
+                report["chunk_state"] = (
+                    "cancelling"
+                    if pending.state == PendingActivityState.PENDING_ACTIVITY_STATE_CANCEL_REQUESTED
+                    else "processing"
+                )
+                if pending.heartbeat_details.payloads:
+                    try:
+                        details = await temporal.data_converter.decode(
+                            pending.heartbeat_details.payloads
+                        )
+                        total = report["total"]
+                        if (
+                            len(details) != 1 or type(details[0]) is not int
+                            or not isinstance(total, int) or not 1 <= details[0] <= total
+                        ):
+                            raise ValueError("Invalid chunk heartbeat")
+                    except (ValueError, TypeError):
+                        logger.error("Temporal returned invalid document chunk progress")
+                        raise HTTPException(503, "Document chunk progress is invalid") from None
+                    report["current_chunk"] = details[0]
+                break
         return report
 
     @router.post("/ui-api/document-workflows/{job_id}/cancel", dependencies=local_ui)

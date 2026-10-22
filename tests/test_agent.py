@@ -13,7 +13,7 @@ from pydantic import SecretStr, ValidationError
 
 from agent.config import Catalog, Route, Settings, load_catalog
 from agent.main import create_app
-from agent.runtime import AgentError, Runtime
+from agent.runtime import AgentError, Runtime, initial_messages
 from gateway.start import build_config
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -452,7 +452,7 @@ def test_actual_overlapping_requests_return_429() -> None:
 
 
 def test_request_deadline_invalidates_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("agent.runtime.REQUEST_SECONDS", 0.01)
+    monkeypatch.setattr("agent.runtime.LOCAL_REQUEST_SECONDS", 0.01)
 
     async def run() -> None:
         async def handle(_: httpx.Request) -> httpx.Response:
@@ -465,9 +465,83 @@ def test_request_deadline_invalidates_readiness(monkeypatch: pytest.MonkeyPatch)
             runtime.states[route.id].verified_at = time.monotonic()
             with pytest.raises(AgentError) as error:
                 await runtime.run(route.id, "hello")
-            assert error.value.status == 502
+            assert error.value.status == 504
+            assert "timed out during inference" in error.value.detail
             assert not runtime.ready(route)
             assert not runtime.lock.locked()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("kind", "scope", "expected_timeout"),
+    [("local", "chat", 900), ("local", "verification", 120), ("cloud", "chat", 120)],
+)
+def test_cpu_inference_has_a_longer_http_budget_than_probes_and_cloud(
+    kind: str, scope: str, expected_timeout: int,
+) -> None:
+    async def run() -> None:
+        def handle(request: httpx.Request) -> httpx.Response:
+            assert request.extensions["timeout"]["read"] == expected_timeout
+            return reply()
+
+        route = catalog().models[0] if kind == "local" else Route(
+            id="test-cloud", label="Test", kind="cloud", model="openai/test",
+            key_env="TEST_API_KEY", enabled=True,
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handle), timeout=120
+        ) as client:
+            runtime = Runtime(settings(), catalog(), client)
+            await runtime.complete(route, initial_messages("Synthetic timeout test"), scope)
+            runtime.usage.close()
+
+    asyncio.run(run())
+
+
+def test_gateway_local_timeout_matches_cpu_inference_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cloud = Route(
+        id="test-cloud", label="Test", kind="cloud", model="openai/test",
+        key_env="TEST_API_KEY", enabled=True,
+    )
+    monkeypatch.setenv("TEST_API_KEY", "synthetic-test-only")
+    config = build_config(
+        settings(allow_cloud=True), Catalog(models=[catalog().models[0], cloud])
+    )
+    by_name = {model["model_name"]: model["litellm_params"] for model in config["model_list"]}
+    assert by_name["local-qwen3"]["timeout"] == 900
+    assert by_name["test-cloud"]["timeout"] == 120
+    assert config["litellm_settings"]["request_timeout"] == 900
+
+
+@pytest.mark.parametrize("phase", ["model preparation", "inference"])
+def test_http_timeout_identifies_phase_and_keeps_readiness_closed(phase: str) -> None:
+    async def run() -> None:
+        requests = 0
+
+        def timeout(request: httpx.Request) -> httpx.Response:
+            nonlocal requests
+            requests += 1
+            raise httpx.ReadTimeout("Synthetic timeout", request=request)
+
+        async with httpx.AsyncClient(
+            transport=transport(inference=timeout) if phase == "inference"
+            else httpx.MockTransport(timeout)
+        ) as client:
+            runtime = Runtime(settings(), catalog(), client)
+            route = runtime.resolve("local-qwen3")
+            runtime.states[route.id].verified_at = time.monotonic()
+            with pytest.raises(AgentError) as error:
+                await runtime.run(route.id, "Synthetic timeout test")
+            assert error.value.status == 504
+            assert f"timed out during {phase}" in error.value.detail
+            assert "No automatic retry" in error.value.detail
+            assert requests == 1
+            assert not runtime.ready(route)
+            assert not runtime.lock.locked()
+            runtime.usage.close()
 
     asyncio.run(run())
 

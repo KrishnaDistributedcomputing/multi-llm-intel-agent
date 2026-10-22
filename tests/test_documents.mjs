@@ -7,7 +7,7 @@ const html = readFileSync(new URL("../agent/static/index.html", import.meta.url)
 const source = html.match(/<script id="document-functions">([\s\S]*?)<\/script>/)[1];
 const context = vm.createContext({ TextEncoder });
 vm.runInContext(source, context);
-const { splitDocument, chunkMessage, agentBody } = context;
+const { splitDocument, chunkMessage, agentBody, workflowProgressText } = context;
 const encoder = new TextEncoder();
 
 for (const [label, text] of [
@@ -81,4 +81,28 @@ test("prompt and actual escaped request fit API limits", () => {
 
 test("all inline scripts parse", () => {
   for (const match of html.matchAll(/<script(?: [^>]*)?>([\s\S]*?)<\/script>/g)) new vm.Script(match[1]);
+});
+
+test("workflow progress identifies the active chunk instead of guessing from completion", () => {
+  assert.equal(workflowProgressText({
+    status: "RUNNING", completed: 2, total: 20, current_chunk: 7, chunk_state: "processing",
+  }), "Processing chunk 7 of 20. 2 of 20 chunks completed.");
+});
+
+test("queued, legacy and terminal progress do not claim an active chunk", () => {
+  const base = { status: "RUNNING", completed: 2, total: 20 };
+  assert.equal(workflowProgressText({ ...base, current_chunk: null, chunk_state: "queued" }),
+    "Waiting for a worker to start the next chunk. 2 of 20 chunks completed.");
+  assert.equal(workflowProgressText({ ...base, current_chunk: null, chunk_state: "processing" }),
+    "Processing a chunk (waiting for its index update). 2 of 20 chunks completed.");
+  assert.equal(workflowProgressText({ ...base, status: "COMPLETED", completed: 20,
+    current_chunk: 20, chunk_state: "processing" }), "COMPLETED: 20 of 20 chunks completed.");
+  assert.equal(workflowProgressText({ ...base, status: "FAILED", current_chunk: 3,
+    chunk_state: "processing" }), "FAILED: 2 of 20 chunks completed.");
+});
+
+test("workflow cancellation identifies the actual chunk", () => {
+  assert.equal(workflowProgressText({
+    status: "RUNNING", completed: 2, total: 20, current_chunk: 3, chunk_state: "cancelling",
+  }), "Cancellation requested for chunk 3 of 20. 2 of 20 chunks completed.");
 });

@@ -323,7 +323,11 @@ escaping; ordinary agent requests remain limited to 16 KiB.
 
 Keep the workflow ID shown in the tab. Use Load / refresh workflow to resume
 monitoring after a browser reload. Progress refreshes every three seconds while
-the workflow runs. Results are paginated, and Download results JSON exports a
+the workflow runs and identifies the current one-based chunk, for example
+"Processing chunk 3 of 20. 2 of 20 chunks completed." The worker reports its actual
+chunk index through Temporal heartbeats. Queued work is shown as waiting for a
+worker, not as processing; older workers without chunk heartbeats show that the
+index is pending until upgraded. Results are paginated, and Download results JSON exports a
 snapshot of the completed chunks. Closing the browser or clearing the local
 preview does not cancel a workflow. Cancel workflow requests cancellation;
 in-flight inference may still finish. Partial results remain available after
@@ -378,7 +382,8 @@ UUID `id`, `name`, UTF-8 `text`, a local `model` ID, `instruction`,
 `max_chunk_bytes`, and `overlap_bytes`. Reusing the same ID with the same document
 does not start another execution; reusing it for different content is rejected.
 Status includes the ID, filename, model, status, total/completed counts, offset,
-and ordered results containing a one-based chunk index and answer. Result page
+`current_chunk` (one-based or null), `chunk_state` (queued, processing, cancelling,
+or idle), and ordered results containing a one-based chunk index and answer. Result page
 sizes are limited to 100.
 
 ### Local UI access
@@ -422,10 +427,12 @@ Readiness verification runs at startup and every five minutes, serialized with
 user inference. It exercises the calculator tool and a final model answer.
 Before local inference, it allows up to five minutes for a CPU-only, empty-prompt
 model warm-up. This loads weights without generating tokens and is not counted as
-an inference call. The tool-inference probe and each user conversation have a
-180-second bound after preparation. User requests recheck the approved model and
+an inference call. Tool-inference probes and cloud conversations have a
+180-second bound after preparation. Local CPU conversations allow up to 15 minutes,
+including all model/tool rounds, so a 512-token answer is not cut off by the old
+120-second HTTP limit on a slow CPU. User requests recheck the approved model and
 warm it before inference, so switching between models works when only one model
-is resident. Preparation is bounded by the overall eight-minute request deadline.
+is resident. Local preparation and inference share a bounded 20-minute request deadline.
 Cold loading and model switching may make the slot unavailable
 during verification; no model becomes ready merely by warming up.
 External models receive their own probe only when enabled, which can incur API
@@ -578,10 +585,15 @@ Use ACR retention/lifecycle policies appropriate to your subscription.
 * One global inference slot per agent process, including verification.
   Concurrent user requests return 429 rather than creating an unbounded queue.
   Keep exactly one Uvicorn worker and one agent replica.
-* Up to five minutes for local model preparation, then at most 180 seconds for
-  the conversation, with an eight-minute overall deadline. At most three model
-  rounds and four tool calls. Each gateway inference HTTP call has a 120-second
-  timeout, with retries disabled. Already resident models warm immediately.
+* Up to five minutes for local model preparation, then at most 15 minutes for
+  a local CPU conversation, with a 20-minute overall deadline. Cloud conversations
+  and verification probes retain their 180-second conversation budget and
+  120-second HTTP limits. At most three model rounds and four tool calls.
+  Local inference HTTP calls allow up to 900 seconds; the conversation deadline
+  still bounds the combined rounds. Proxies and document-worker activity deadlines
+  include preparation and a small transport margin. Retries remain disabled.
+  Actual timeouts return HTTP 504, identify the phase, and still require model
+  re-verification. Already resident models warm immediately.
 * 512 output tokens per round. Truncated or empty output is an explicit error.
 * 4,096-token local context enforced by Ollama. Admission uses a deliberately
   conservative UTF-8 byte budget including tools, transcript and framing;

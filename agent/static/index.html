@@ -214,6 +214,18 @@
     }
     return body;
   }
+  function workflowProgressText(report) {
+    const format = new Intl.NumberFormat().format;
+    const completed = `${format(report.completed)} of ${format(report.total)} chunks completed.`;
+    if (!["RUNNING", "CONTINUED_AS_NEW"].includes(report.status)) return `${report.status}: ${completed}`;
+    const chunk = report.current_chunk;
+    const position = Number.isInteger(chunk) && chunk > 0 && chunk <= report.total
+      ? `chunk ${format(chunk)} of ${format(report.total)}` : "a chunk (waiting for its index update)";
+    const update = report.chunk_state === "processing" ? `Processing ${position}.`
+      : report.chunk_state === "cancelling" ? `Cancellation requested for ${position}.`
+      : "Waiting for a worker to start the next chunk.";
+    return `${update} ${completed}`;
+  }
 </script>
 <script>
   "use strict";
@@ -464,7 +476,7 @@
     workflowReport = report;
     workflowActive = ["RUNNING", "CONTINUED_AS_NEW"].includes(report.status);
     const terminalError = ["FAILED", "TIMED_OUT", "TERMINATED", "CANCELED"].includes(report.status);
-    let detail = `${report.status}: ${numbers.format(report.completed)} of ${numbers.format(report.total)} chunks completed.`;
+    let detail = workflowProgressText(report);
     if (terminalError) detail += " Partial results are retained. Inference may already have run; resubmitting a document can repeat processing.";
     workflowStatus(detail, terminalError);
     $("workflow-progress").hidden = false;

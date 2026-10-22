@@ -32,7 +32,7 @@ http.createServer(async (req, res) => {
   const upstream = http.request({
     hostname: "127.0.0.1", port: 8000, path: req.url, method: req.method,
     headers: req.headers,
-    timeout: 490000,
+    timeout: 1210000,
   }, (response) => {
     res.writeHead(response.statusCode, response.headers);
     response.pipe(res);
