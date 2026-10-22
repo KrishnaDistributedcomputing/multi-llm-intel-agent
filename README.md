@@ -30,6 +30,36 @@ All three images target `linux/amd64`; no GPU is required.
 > FedRAMP authorization, or FIPS validation. The notice is not a data-loss
 > prevention mechanism; do not enter nonpublic data.
 
+## Screenshots
+
+Captured from the running local development interface. Model readiness and token
+counts reflect this development machine at capture time and will vary by setup.
+The document preview contains synthetic demonstration text only.
+
+### Conversation
+
+Choose a verified local model and start a conversation, or try the calculator
+and UTC-time tools.
+
+![Conversation workspace with local model selection and starter prompts](docs/screenshots/conversation.png)
+
+### Documents
+
+Split a text document in the browser, review the selected chunk, and choose
+whether to send it to the local agent. The example below was split locally
+without sending it for inference.
+
+![Document workspace showing a synthetic text file and its chunk preview](docs/screenshots/documents.png)
+
+### Token usage
+
+Inspect provider-reported input, output, and total tokens, with per-model
+breakdowns and recent call history. This view shows chat calls only.
+
+![Token usage dashboard showing chat totals, per-model counts, and recent calls](docs/screenshots/token-usage.png)
+
+## Local model candidates
+
 The local allowlist includes [Qwen3 4B](https://ollama.com/library/qwen3:4b),
 [Qwen3 1.7B](https://ollama.com/library/qwen3:1.7b),
 [Microsoft Phi-4 Mini 3.8B](https://ollama.com/library/phi4-mini:3.8b),
