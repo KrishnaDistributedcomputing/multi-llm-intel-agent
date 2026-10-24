@@ -68,11 +68,24 @@ All three images target `linux/amd64`; no GPU is required.
 For the latest streamlined landing page, ROI calculator, plain-language EVAL
 guide, clickable architecture, and Azure-blue paid-cloud view, see the
 [current Azure walkthrough](docs/azure-deployment.md#step-8-try-the-features).
-The images below document earlier development views.
 
-Captured from the running local development interface. Model readiness and token
-counts reflect this development machine at capture time and will vary by setup.
-The document preview contains synthetic demonstration text only.
+### Azure-blue paid-cloud deployment
+
+Open the [live Azure workbench](https://intel-agent-20261024104426.westus2.cloudapp.azure.com/)
+and choose **Paid cloud / Azure Foundry / GPT-4.1 nano** or **GPT-4.1 mini** in
+Conversation. The workspace changes to Azure blue. Selecting a local model
+restores green, even when the application itself is hosted on Azure.
+Changing the selection does not submit inference; paid requests require confirmation.
+
+![Azure-hosted workbench in Azure blue with the paid Foundry nano model selected](docs/screenshots/azure-paid-cloud.png)
+
+The hosted demo has no website login or per-user isolation. Use public or
+synthetic data only. Cloud calls consume a shared application allowance, not
+a separate budget for each visitor.
+
+The following screenshots document earlier local development views. Model
+readiness and token counts reflect the development machine at capture time and
+will vary by setup. Document previews contain synthetic demonstration text only.
 
 ### Conversation
 
