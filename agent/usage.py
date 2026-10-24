@@ -19,6 +19,10 @@ class UsageStoreError(RuntimeError):
     """Usage could not be read or durably recorded."""
 
 
+class CloudLimitError(RuntimeError):
+    """A cloud request was rejected before contacting the provider."""
+
+
 class TokenUsage(BaseModel):
     model_config = ConfigDict(extra="ignore", strict=True)
     prompt_tokens: int | None = Field(default=None, ge=0)
@@ -61,6 +65,21 @@ class UsageStore:
                 connection.execute(
                     "CREATE INDEX IF NOT EXISTS calls_scope_model ON model_calls(scope, model)"
                 )
+                connection.execute("""
+                    CREATE TABLE IF NOT EXISTS cloud_reservations (
+                        id INTEGER PRIMARY KEY,
+                        reserved_at REAL NOT NULL,
+                        utc_day TEXT NOT NULL,
+                        model TEXT NOT NULL,
+                        microusd INTEGER NOT NULL CHECK(microusd > 0)
+                    )
+                """)
+                connection.execute(
+                    "CREATE INDEX IF NOT EXISTS cloud_day ON cloud_reservations(utc_day)"
+                )
+                connection.execute(
+                    "CREATE INDEX IF NOT EXISTS cloud_time ON cloud_reservations(reserved_at)"
+                )
         except (sqlite3.Error, OSError) as exc:
             logger.error("Usage database initialization failed (%s)", type(exc).__name__)
             raise UsageStoreError("Usage database initialization failed") from exc
@@ -83,6 +102,52 @@ class UsageStore:
             if cursor.lastrowid is None:
                 raise UsageStoreError("Usage record ID was not returned")
             return cursor.lastrowid
+
+    def reserve_cloud(
+        self, model: str, microusd: int, daily_limit: int, calls_per_minute: int,
+        *, now: datetime | None = None,
+    ) -> None:
+        timestamp = now or datetime.now(UTC)
+        day = timestamp.astimezone(UTC).date().isoformat()
+        with self.transaction() as connection:
+            # Lock before reading so separate processes cannot overspend the shared allowance.
+            connection.execute("BEGIN IMMEDIATE")
+            spent = connection.execute(
+                "SELECT COALESCE(SUM(microusd),0) FROM cloud_reservations WHERE utc_day=?",
+                (day,),
+            ).fetchone()[0]
+            if spent + microusd > daily_limit:
+                raise CloudLimitError(
+                    "Shared daily cloud allowance exhausted; choose a local model "
+                    "or wait until the next UTC day."
+                )
+            recent = connection.execute(
+                "SELECT COUNT(*) FROM cloud_reservations WHERE reserved_at>?",
+                (timestamp.timestamp() - 60,),
+            ).fetchone()[0]
+            if recent >= calls_per_minute:
+                raise CloudLimitError(
+                    "Shared cloud rate limit reached; wait one minute or choose a local model."
+                )
+            connection.execute(
+                "INSERT INTO cloud_reservations(reserved_at,utc_day,model,microusd) "
+                "VALUES (?,?,?,?)",
+                (timestamp.timestamp(), day, model, microusd),
+            )
+
+    def cloud_budget(self, daily_limit: int) -> dict[str, object]:
+        day = datetime.now(UTC).date().isoformat()
+        with self.transaction() as connection:
+            reserved = connection.execute(
+                "SELECT COALESCE(SUM(microusd),0) FROM cloud_reservations WHERE utc_day=?",
+                (day,),
+            ).fetchone()[0]
+        return {
+            "utc_day": day,
+            "daily_limit_usd": daily_limit / 1_000_000,
+            "reserved_usd": reserved / 1_000_000,
+            "remaining_usd": max(0, daily_limit - reserved) / 1_000_000,
+        }
 
     def finish(
         self, call_id: int, usage: TokenUsage | None, status: Literal["completed", "failed"]

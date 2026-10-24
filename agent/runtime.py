@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import math
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -24,11 +25,12 @@ from agent.config import (
     Settings,
 )
 from agent.tools import TOOLS, ToolError, execute_tool
-from agent.usage import TokenUsage, UsageScope, UsageStore, UsageStoreError
+from agent.usage import CloudLimitError, TokenUsage, UsageScope, UsageStore, UsageStoreError
 
 logger = logging.getLogger(__name__)
 MAX_TOOL_CALLS = 4
 MAX_ROUNDS = 3
+ToolChoice = Literal["auto", "none"]
 REQUEST_SECONDS = 180
 SYSTEM = (
     "You are a concise assistant. Use calculator for arithmetic and utc_time for current time. "
@@ -110,6 +112,10 @@ class Runtime:
         self.states = {route.id: ModelState() for route in catalog.models}
         self.usage = usage if usage is not None else UsageStore(Path(":memory:"))
 
+    @property
+    def cloud_daily_limit(self) -> int:
+        return math.floor(self.settings.cloud_daily_budget_usd * 1_000_000)
+
     def allowed(self, route: Route) -> bool:
         return route.enabled and (route.kind == "local" or self.settings.allow_cloud)
 
@@ -124,7 +130,10 @@ class Runtime:
             self.allowed(route)
             and state.verified_at > 0
             and time.monotonic() - state.verified_at
-            < self.settings.verify_interval_seconds + cycle_seconds + 30
+            < (
+                self.settings.cloud_verify_interval_seconds if route.kind == "cloud"
+                else self.settings.verify_interval_seconds
+            ) + cycle_seconds + 30
         )
 
     def model_list(self) -> list[dict[str, object]]:
@@ -135,6 +144,8 @@ class Runtime:
                 "kind": route.kind,
                 "enabled": self.allowed(route),
                 "ready": self.ready(route),
+                "input_usd_per_million": route.input_usd_per_million,
+                "output_usd_per_million": route.output_usd_per_million,
                 "reason": (
                     "Cloud processing is disabled"
                     if route.kind == "cloud" and not self.settings.allow_cloud
@@ -166,9 +177,25 @@ class Runtime:
             yield
 
     async def complete(
-        self, route: Route, messages: list[dict[str, object]], scope: UsageScope = "chat"
+        self, route: Route, messages: list[dict[str, object]], scope: UsageScope = "chat",
+        *, tool_choice: ToolChoice = "auto",
     ) -> Message:
         check_context(messages)
+        if route.kind == "cloud":
+            if route.input_usd_per_million is None or route.output_usd_per_million is None:
+                raise AgentError(503, "Cloud route requires verified input and output token prices")
+            reservation = math.ceil(
+                CONTEXT_TOKENS * route.input_usd_per_million
+                + OUTPUT_TOKENS * route.output_usd_per_million
+            )
+            try:
+                self.usage.reserve_cloud(
+                    route.id, reservation, self.cloud_daily_limit,
+                    self.settings.cloud_calls_per_minute,
+                )
+            except CloudLimitError as exc:
+                logger.warning("Cloud request rejected for %s: %s", route.id, exc)
+                raise AgentError(429, str(exc)) from exc
         call_id = self.usage.start(route.id, scope)
         reported_usage: TokenUsage | None = None
         try:
@@ -180,8 +207,10 @@ class Runtime:
                 json={
                     "model": route.id,
                     "messages": messages,
-                    "tools": TOOLS,
-                    "tool_choice": "auto",
+                    **({"tools": TOOLS, "tool_choice": "auto"} if tool_choice == "auto" else {}),
+                    # GPT-4.1 nano 2025-04-14 can emit spurious parallel tool calls.
+                    **({"parallel_tool_calls": False}
+                       if route.model.startswith("azure/") and tool_choice == "auto" else {}),
                     "max_tokens": OUTPUT_TOKENS,
                     "stream": False,
                 },
@@ -201,18 +230,25 @@ class Runtime:
         self.usage.finish(call_id, reported_usage, "completed")
         return choice.message
 
-    async def conversation(self, route: Route, prompt: str, *, probe: bool = False) -> str:
+    async def conversation(
+        self, route: Route, prompt: str, *, probe: bool = False,
+        tool_choice: ToolChoice = "auto",
+    ) -> str:
         messages = initial_messages(prompt)
         calls = 0
         probe_tool_seen = False
         for _ in range(MAX_ROUNDS):
-            message = await self.complete(route, messages, "verification" if probe else "chat")
+            message = await self.complete(
+                route, messages, "verification" if probe else "chat", tool_choice=tool_choice,
+            )
             if not message.tool_calls:
                 if not message.content or not message.content.strip():
                     raise AgentError(502, "Model returned no answer")
                 if probe and (not probe_tool_seen or "42" not in message.content):
                     raise AgentError(503, "Model failed the end-to-end tool inference check")
                 return message.content
+            if tool_choice == "none":
+                raise AgentError(502, "Model returned tool calls for a text-only request")
             calls += len(message.tool_calls)
             if calls > MAX_TOOL_CALLS:
                 raise AgentError(502, "Model exceeded the four-tool execution limit")
@@ -305,12 +341,12 @@ class Runtime:
     async def verification_loop(self) -> None:
         while True:
             for route in self.catalog.models:
-                if self.allowed(route):
+                if self.allowed(route) and not (route.kind == "cloud" and self.ready(route)):
                     async with self.lock:
                         await self.verify(route)
             await asyncio.sleep(self.settings.verify_interval_seconds)
 
-    async def run(self, model: str, prompt: str) -> str:
+    async def run(self, model: str, prompt: str, *, tool_choice: ToolChoice = "auto") -> str:
         route = self.resolve(model)
         async with self.slot():
             if not self.ready(route):
@@ -325,7 +361,7 @@ class Runtime:
                             await self.verify_local(route)
                     phase = "inference"
                     async with asyncio.timeout(inference_seconds):
-                        return await self.conversation(route, prompt)
+                        return await self.conversation(route, prompt, tool_choice=tool_choice)
             except AgentError as exc:
                 if exc.status in (502, 503):
                     self.states[route.id] = ModelState(

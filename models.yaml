@@ -26,12 +26,24 @@ models:
     key_env: GEMINI_API_KEY
     enabled: false
   - id: azure
-    label: Azure OpenAI
+    label: Azure Foundry / GPT-4.1 nano / lowest cost
     kind: cloud
-    model: azure/REPLACE_WITH_DEPLOYMENT
+    model: azure/ai-gpt41-nano
     api_base: https://REPLACE_WITH_RESOURCE.openai.azure.com
     api_version: "2024-10-21"
     key_env: AZURE_API_KEY
+    input_usd_per_million: 0.10
+    output_usd_per_million: 0.40
+    enabled: false
+  - id: azure-mini
+    label: Azure Foundry / GPT-4.1 mini / balanced
+    kind: cloud
+    model: azure/ai-gpt41-mini
+    api_base: https://REPLACE_WITH_RESOURCE.openai.azure.com
+    api_version: "2024-10-21"
+    key_env: AZURE_API_KEY
+    input_usd_per_million: 0.40
+    output_usd_per_million: 1.60
     enabled: false
   - id: compatible
     label: OpenAI-compatible endpoint
@@ -56,6 +68,13 @@ models:
     # Retain the weights, but do not route to this failed tool-inference candidate.
     enabled: false
     approved_digest: "sha256:a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72"
+
+  - id: local-qwen3-tiny
+    label: Qwen3 0.6B / CPU
+    kind: local
+    model: ollama_chat/qwen3:0.6b
+    enabled: true
+    approved_digest: "sha256:7df6b6e09427a769808717c0a93cadc4ae99ed4eb8bf5ca557c90846becea435"
 
   - id: local-phi4-mini
     label: Microsoft Phi-4 Mini 3.8B / Intel CPU

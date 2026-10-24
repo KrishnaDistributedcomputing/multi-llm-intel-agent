@@ -159,6 +159,8 @@ def test_inference_must_succeed_before_readiness(
                 model="openai/test",
                 key_env="TEST_API_KEY",
                 enabled=True,
+                input_usd_per_million=0.1,
+                output_usd_per_million=0.4,
             )
             models = Catalog(models=[catalog().models[0], route])
             runtime = Runtime(config, models, client)
@@ -260,7 +262,7 @@ def test_authenticated_api_and_probe_shapes() -> None:
         response = client.get("/models", headers=auth)
         assert response.status_code == 200
         assert response.json()["cloud_enabled"] is False
-        assert len(response.json()["models"]) == 10
+        assert len(response.json()["models"]) == 12
         for model in response.json()["models"]:
             assert not model["ready"]
         assert response.headers["cache-control"] == "no-store"
@@ -299,7 +301,7 @@ def test_gateway_allowlist_and_context(monkeypatch: pytest.MonkeyPatch) -> None:
     models = catalog()
     models.models[1].enabled = True
     config = build_config(settings(), models)
-    assert len(config["model_list"]) == 4
+    assert len(config["model_list"]) == 5
     assert all(model["model_name"] != "local-llama32" for model in config["model_list"])
     local = config["model_list"][0]
     assert local["litellm_params"]["num_ctx"] == 4096
@@ -310,17 +312,21 @@ def test_gateway_allowlist_and_context(monkeypatch: pytest.MonkeyPatch) -> None:
         build_config(settings(allow_cloud=True), models)
     monkeypatch.setenv("OPENAI_API_KEY", "test-provider-key")
     config = build_config(settings(allow_cloud=True), models)
-    assert len(config["model_list"]) == 5
+    assert len(config["model_list"]) == 6
     assert "test-provider-key" not in json.dumps(config)
     assert config["model_list"][1]["litellm_params"]["api_key"] == "os.environ/OPENAI_API_KEY"
 
 
 @pytest.mark.parametrize(
     ("model_id", "tag"),
-    [("local-phi4-mini", "phi4-mini:3.8b"), ("local-llama32-small", "llama3.2:1b")],
+    [
+        ("local-phi4-mini", "phi4-mini:3.8b"),
+        ("local-llama32-small", "llama3.2:1b"),
+        ("local-qwen3-tiny", "qwen3:0.6b"),
+    ],
 )
 @pytest.mark.parametrize("failure", [None, "digest", "tools"])
-def test_microsoft_and_meta_candidates_require_verified_tool_inference(
+def test_small_candidates_require_verified_tool_inference(
     model_id: str, tag: str, failure: str | None
 ) -> None:
     async def run() -> None:
@@ -337,7 +343,11 @@ def test_microsoft_and_meta_candidates_require_verified_tool_inference(
         )
         assert params["model"] == "ollama_chat/" + tag
         assert params["num_ctx"] == 4096 and params["num_gpu"] == 0
-        assert params["use_mmap"] is True and "think" not in params
+        assert params["use_mmap"] is True
+        if tag.startswith("qwen3:"):
+            assert params["think"] is False
+        else:
+            assert "think" not in params
 
         def handle(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/api/tags":
@@ -488,6 +498,7 @@ def test_cpu_inference_has_a_longer_http_budget_than_probes_and_cloud(
         route = catalog().models[0] if kind == "local" else Route(
             id="test-cloud", label="Test", kind="cloud", model="openai/test",
             key_env="TEST_API_KEY", enabled=True,
+            input_usd_per_million=0.1, output_usd_per_million=0.4,
         )
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(handle), timeout=120

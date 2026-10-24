@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_MODEL = "qwen3:4b"
 LOCAL_MODELS = frozenset(
-    {LOCAL_MODEL, "qwen3:1.7b", "llama3.2:3b", "phi4-mini:3.8b", "llama3.2:1b"}
+    {LOCAL_MODEL, "qwen3:1.7b", "qwen3:0.6b", "llama3.2:3b", "phi4-mini:3.8b", "llama3.2:1b"}
 )
 CONTEXT_TOKENS = 4096
 OUTPUT_TOKENS = 512
@@ -63,6 +63,9 @@ class Settings(GatewaySettings):
     temporal_task_queue: str = "document-processing"
     document_data_path: Path = Path("data/documents")
     document_agent_url: str = "http://agent:8000"
+    cloud_daily_budget_usd: float = Field(default=1, gt=0, le=100, allow_inf_nan=False)
+    cloud_calls_per_minute: int = Field(default=6, ge=1, le=60)
+    cloud_verify_interval_seconds: int = Field(default=3600, ge=300, le=86400)
 
     @model_validator(mode="after")
     def validate_secrets(self) -> "Settings":
@@ -85,6 +88,8 @@ class Route(BaseModel):
     api_base: str | None = None
     api_version: str | None = None
     approved_digest: str = ""
+    input_usd_per_million: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    output_usd_per_million: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
     @property
     def ollama_model(self) -> str:
@@ -116,6 +121,10 @@ class Route(BaseModel):
                     )
         if "*" in self.model:
             raise ValueError("Wildcard models are forbidden")
+        if (self.input_usd_per_million is None) != (self.output_usd_per_million is None):
+            raise ValueError("Supply both input and output token prices")
+        if self.kind == "local" and self.input_usd_per_million is not None:
+            raise ValueError("Token prices apply only to cloud models")
         return self
 
 

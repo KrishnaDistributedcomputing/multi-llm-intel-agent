@@ -19,7 +19,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from agent.config import DEVELOPMENT_NOTICE, REVIEW_NOTICE, Settings, load_catalog
 from agent.document_api import DocumentService, document_router
 from agent.documents import MAX_UPLOAD_BYTES
-from agent.runtime import AgentError, Runtime
+from agent.runtime import AgentError, Runtime, ToolChoice
 from agent.usage import UsageFilter, UsageStore, UsageStoreError
 
 bearer = HTTPBearer(auto_error=False)
@@ -112,6 +112,7 @@ class AgentRequest(BaseModel):
     model: str = Field(min_length=1, max_length=48)
     message: str = Field(min_length=1, max_length=6000, pattern=r"\S")
     require_local: bool = False
+    tool_choice: ToolChoice = "auto"
 
 
 class AgentResponse(BaseModel):
@@ -224,6 +225,13 @@ def create_app(settings: Settings | None = None, *, background_verify: bool = Tr
     async def ui() -> FileResponse:
         return FileResponse(Path(__file__).parent / "static" / "index.html")
 
+    @app.get("/architecture.svg", include_in_schema=False)
+    async def architecture_diagram() -> FileResponse:
+        return FileResponse(
+            Path(__file__).parent / "static" / "architecture.svg",
+            media_type="image/svg+xml",
+        )
+
     @app.get("/healthz")
     async def health() -> dict[str, str]:
         return {"status": "alive"}
@@ -245,6 +253,10 @@ def create_app(settings: Settings | None = None, *, background_verify: bool = Tr
             "cloud_enabled": config.allow_cloud,
             "deployment_notice": DEVELOPMENT_NOTICE,
             "models": runtime.model_list(),
+            "cloud_budget": (
+                runtime.usage.cloud_budget(runtime.cloud_daily_limit)
+                if config.allow_cloud else None
+            ),
         }
 
     @app.get("/ui-api/usage", dependencies=local_ui, include_in_schema=False)
@@ -264,6 +276,9 @@ def create_app(settings: Settings | None = None, *, background_verify: bool = Tr
         runtime: Runtime = request.app.state.runtime
         if body.require_local and runtime.resolve(body.model).kind != "local":
             raise HTTPException(403, "This request requires a local model")
-        return AgentResponse(model=body.model, answer=await runtime.run(body.model, body.message))
+        return AgentResponse(
+            model=body.model,
+            answer=await runtime.run(body.model, body.message, tool_choice=body.tool_choice),
+        )
 
     return app

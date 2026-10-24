@@ -7,3 +7,4 @@ __pycache__/
 temporary screenshots/
 data/
 .local/
+node_modules/

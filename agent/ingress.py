@@ -15,6 +15,7 @@ from agent.main import BodyLimit
 logger = logging.getLogger(__name__)
 ROUTES = {
     "/": ["GET"],
+    "/architecture.svg": ["GET"],
     "/healthz": ["GET"],
     "/readyz": ["GET"],
     "/models": ["GET"],

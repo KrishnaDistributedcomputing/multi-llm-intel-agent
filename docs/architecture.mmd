@@ -1,0 +1,36 @@
+flowchart TB
+    Browser["Browser: Conversation, Documents, Usage, Documentation, ROI, EVAL"]
+    Caddy["Azure VM: Caddy HTTPS<br/>Public demo, no user login"]
+    Ingress["Loopback ingress<br/>Fixed routes, Host and Origin preserved"]
+    subgraph Private["Private inference network"]
+        Agent["FastAPI agent<br/>Policy, readiness, bounded tools"]
+        Usage[("SQLite volume<br/>Token usage and cloud reservations")]
+        Gateway["LiteLLM gateway<br/>Allowlisted routes, server-held credentials"]
+        Ollama["Ollama on CPU<br/>Qwen3 0.6B / 1.7B, Llama 3.2 1B"]
+        Temporal["Temporal dev server and worker<br/>Local-only document chunks"]
+        Documents[("Document volume<br/>Uploaded text and chunk results")]
+    end
+    Foundry["Azure AI Foundry / Azure OpenAI<br/>GPT-4.1 nano and mini<br/>Opt-in, pay-as-you-go"]
+    Browser -->|"HTTPS on Azure"| Caddy
+    Caddy -->|"127.0.0.1:8000"| Ingress
+    Ingress --> Agent
+    Agent --> Usage
+    Agent --> Gateway
+    Gateway --> Ollama
+    Gateway -->|"Only gateway has provider egress"| Foundry
+    Agent -->|"Explicit document upload"| Temporal
+    Temporal -->|"Authenticated local-only calls"| Agent
+    Agent --> Documents
+    Temporal --> Documents
+    classDef cloud fill:#e5f2ff,stroke:#0078d4,color:#003c70
+    class Foundry,Caddy cloud
+    click Browser href "#component-browser" "Browser details" _self
+    click Caddy href "#component-caddy" "HTTPS details" _self
+    click Ingress href "#component-ingress" "Ingress details" _self
+    click Agent href "#component-agent" "Agent details" _self
+    click Usage href "#component-usage" "Usage and allowance details" _self
+    click Gateway href "#component-gateway" "Gateway details" _self
+    click Ollama href "#component-ollama" "Local model details" _self
+    click Temporal href "#component-temporal" "Workflow details" _self
+    click Documents href "#component-documents" "Document retention details" _self
+    click Foundry href "#component-foundry" "Paid cloud details" _self

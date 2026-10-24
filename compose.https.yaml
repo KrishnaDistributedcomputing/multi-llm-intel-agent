@@ -1,0 +1,20 @@
+# Optional public, unauthenticated demo. Linux VM only; read docs/azure-deployment.md first.
+services:
+  https:
+    image: caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    network_mode: host
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?Set PUBLIC_HOST to the VM DNS name without https://}
+      AGENT_API_KEY: ${AGENT_API_KEY:?Set AGENT_API_KEY}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 1
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  caddy-data:
+  caddy-config:

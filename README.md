@@ -1,9 +1,42 @@
 ---
 title: Intel local-first AI agent
-description: Run an authenticated tool-calling agent on an Intel PC and distribute its containers through ACR Basic.
+description: Run a local-first AI workbench or deploy it on Azure with optional paid models, ROI estimates, synthetic EVAL checks, and step-by-step documentation.
 ---
 
+## TL;DR and business reason
+
+Use one workspace to try synthetic business tasks, choose local or opt-in
+low-cost cloud processing, estimate potential ROI, and evaluate model outputs
+before scaling. The ROI calculator exposes editable assumptions rather than
+claiming measured savings. EVAL runs three synthetic checks only after an
+explicit start, with paid-cloud confirmation and the existing shared controls.
+Clickable architecture components open their operational details.
+
+Time released is potential capacity, not guaranteed cash savings. Validate
+adoption, reviewer acceptance, rework, privacy, and full operating costs in a
+representative pilot. This public demo is for synthetic or public data only.
+
+## Start here
+
+| Your goal | Guide |
+| --- | --- |
+| Deploy your own Azure VM | [Step-by-step Azure deployment](docs/azure-deployment.md) |
+| See the current interface | [Current Azure screenshots and feature tour](docs/azure-deployment.md#step-8-try-the-features) |
+| Understand ROI, EVAL, and the architecture | [Architecture and operations](docs/architecture.md) |
+| Run on your own computer | [Prepare configuration](#prepare-configuration) |
+
+The Azure guide starts privately with an SSH tunnel, then explains optional
+public HTTPS without a website login and optional paid Foundry models.
+Screenshots show synthetic examples from the running demo, not promised results.
+
 ## Architecture
+
+For detailed Mermaid diagrams, request flow, build instructions, cloud spending
+controls, document retention, and troubleshooting, see
+[Architecture, build, and operations](docs/architecture.md). The web interface
+also includes a Documentation tab with the bundled architecture diagram.
+Selecting a paid cloud model changes the workspace to Azure blue; selecting a
+local model restores the green theme without submitting inference.
 
 ```text
 Browser / authenticated client
@@ -31,6 +64,11 @@ All three images target `linux/amd64`; no GPU is required.
 > prevention mechanism; do not enter nonpublic data.
 
 ## Screenshots
+
+For the latest streamlined landing page, ROI calculator, plain-language EVAL
+guide, clickable architecture, and Azure-blue paid-cloud view, see the
+[current Azure walkthrough](docs/azure-deployment.md#step-8-try-the-features).
+The images below document earlier development views.
 
 Captured from the running local development interface. Model readiness and token
 counts reflect this development machine at capture time and will vary by setup.
@@ -65,10 +103,29 @@ breakdowns and recent call history. This view shows chat calls only.
 
 ![Token usage dashboard showing chat totals, per-model counts, and recent calls](docs/screenshots/token-usage.png)
 
+### Azure small models and prebuilt use cases
+
+Captured from the deployed Azure web interface using synthetic inputs. All
+three small models passed digest and structured tool-inference checks at capture
+time. Readiness is refreshed and can change; a failed model remains unselectable.
+
+![Azure workspace with six prebuilt use cases and three verified small models](docs/screenshots/azure-use-cases.png)
+
+The meeting example below loads three chunks locally with 256-byte chunks and
+32-byte overlap. Loading an example does not send a request or confirm upload.
+
+![Synthetic meeting document with local chunk preview and editable instruction](docs/screenshots/azure-document-demo.png)
+
+The discount example uses the calculator through Qwen3 0.6B. The expected final
+price of an 80-dollar item after a 15-percent discount is 68.
+
+![Qwen3 0.6B completing the synthetic discount calculator example](docs/screenshots/azure-demo-answer.png)
+
 ## Local model candidates
 
 The local allowlist includes [Qwen3 4B](https://ollama.com/library/qwen3:4b),
 [Qwen3 1.7B](https://ollama.com/library/qwen3:1.7b),
+[Qwen3 0.6B](https://ollama.com/library/qwen3:0.6b),
 [Microsoft Phi-4 Mini 3.8B](https://ollama.com/library/phi4-mini:3.8b),
 [Meta Llama 3.2 1B](https://ollama.com/library/llama3.2:1b), and
 [Meta Llama 3.2 3B](https://ollama.com/library/llama3.2:3b).
@@ -98,6 +155,42 @@ calculator round trip and reported token usage. Phi-4 Mini advertised tools but
 failed that round trip; it remains listed but unselectable while verification
 fails. Do not bypass readiness to enable a failed candidate.
 These results do not authorize any model for agency data.
+
+The smaller Azure deployment also downloads Qwen3 0.6B (about 523 MB) and Llama
+3.2 1B (about 1.32 GB), retaining Qwen3 1.7B as another option. Qwen3 0.6B uses
+Apache 2.0; Llama 3.2 uses Meta's Llama 3.2 Community License. The Qwen3 0.6B
+manifest was hashed directly from the official Ollama registry and pinned in
+`models.yaml`; Llama 3.2 1B retains its independently pinned digest. A matching
+download is necessary but not sufficient: tool capability and end-to-end
+calculator verification still gate every model.
+
+## Try the prebuilt use cases
+
+In Conversation, choose a verified model and select an example to fill the
+composer from the expandable **Try a prebuilt use case** section below it.
+Edit the prompt if needed, then select Send. Choosing an example
+does not start inference.
+
+| Example               | What to check                                     |
+|-----------------------|---------------------------------------------------|
+| Work out the numbers  | Calculator returns 250 for `(125 * 8) / 4`         |
+| A moment in time      | UTC tool returns the current time, not a fixed date |
+| Price a discount      | Calculator returns 68 for `80 * (1 - 0.15)`        |
+| Draft a support reply | Reply preserves the supplied delay and update day |
+| Find meeting actions  | Alex / demo / Tuesday; Sam / testing / Friday      |
+| Structure a ticket    | JSON includes DEMO-42, high priority, and owner Nia |
+
+In Documents, choose Meeting actions, Support triage, or Invoice line items,
+then select Load example. Examples contain synthetic text and editable
+processing instructions.
+The current chunk size and overlap settings apply; use 256 and 32 bytes to
+see multiple chunks without uploading a file. Replacing a document clears
+workflow upload consent. Review the preview before using Send this chunk, or
+explicitly confirm persistence before starting Process all chunks.
+
+Generated prose and JSON still require review, especially on smaller models.
+These examples test the service, not model accuracy certification. The public
+Azure deployment has no user isolation; do not enter private information.
 
 ## Prepare configuration
 
@@ -222,6 +315,7 @@ not in the ACR image. The daemon needs temporary outbound access to download the
 docker compose -f compose.yaml -f compose.bootstrap.yaml up -d ollama
 docker compose exec ollama ollama pull qwen3:4b
 docker compose exec ollama ollama pull qwen3:1.7b
+docker compose exec ollama ollama pull qwen3:0.6b
 docker compose exec ollama ollama pull llama3.2:3b
 docker compose exec ollama ollama pull phi4-mini:3.8b
 docker compose exec ollama ollama pull llama3.2:1b
@@ -528,9 +622,60 @@ docker compose up -d --force-recreate gateway agent
 This also removes the gateway's egress network. Explicitly selecting a cloud
 model sends your current message and tool transcript to that provider.
 
+### Lower-cost Azure AI Foundry choices
+
+The `azure` and `azure-mini` routes use Azure OpenAI deployments available through
+Azure AI Foundry. Both are disabled in the source catalog until you configure
+their resource endpoint, credentials, and deployment names. Keep local models
+enabled: they are the default, and the app never automatically falls back to a
+paid provider.
+
+| Route | Deployment | Input USD / 1M tokens | Output USD / 1M tokens |
+| --- | --- | ---: | ---: |
+| `azure` | `ai-gpt41-nano` (GPT-4.1 nano) | 0.10 | 0.40 |
+| `azure-mini` | `ai-gpt41-mini` (GPT-4.1 mini) | 0.40 | 1.60 |
+
+These Global Standard retail rates were checked against the
+[Azure Retail Prices API](https://learn.microsoft.com/rest/api/cost-management/retail-prices/azure-retail-prices)
+for East US 2 on 2026-10-24. Verify your current subscription pricing before
+enabling traffic. Global Standard may process requests outside the resource's
+region. Pin deployment model versions and disable automatic upgrades so a
+replacement cannot silently change the configured cost assumptions.
+
+The model selector labels local and paid cloud choices and displays cloud token
+prices. Sending to a paid route asks for confirmation, including manual document
+excerpts. Credentials remain on the gateway, not in the browser. Automatic
+Temporal document workflows remain local-only.
+
+The default cloud allowance is `CLOUD_DAILY_BUDGET_USD=1`, shared by all visitors
+and all cloud models for each UTC calendar day. Before every provider call,
+including each tool round and readiness probe, the server atomically reserves
+the full conservative 4,096 input tokens plus 512 output tokens at the configured
+prices. Reservations are rounded up to microdollars and never refunded, including
+failed, interrupted, or unreported calls. Provider-reported token accounting is
+separate from these conservative reservations.
+
+SQLite reservations persist in the existing `agent-usage` volume and use an
+immediate write transaction to protect the allowance across processes. A storage
+failure blocks cloud calls. Exhausted allowance returns HTTP 429 and leaves local
+models usable. The rolling `CLOUD_CALLS_PER_MINUTE=6` limit applies to provider
+calls, not conversations; a tool conversation can consume several calls. Cloud
+readiness probes run approximately hourly instead of every local verification
+cycle. The UI shows the remaining shared allowance.
+
+> [!WARNING]
+> This is an application allowance, not an Azure billing guarantee or a per-user
+> quota. Anyone can consume a public site's shared allowance. Direct use of the
+> Azure key, other applications, incorrect or changed token prices, UTC billing
+> boundaries, and VM, disk, tax, or networking costs are outside this control.
+> Azure budget alerts do not stop spending. Deleting the usage volume also
+> deletes reservations. Restrict administrative access and review Azure costs.
+
 ## Store all three images in ACR Basic
 
-Azure provides image storage, not inference compute. The following commands
+The ACR-only workflow uses Azure for image storage, not inference compute.
+For hosted compute, see [Azure VM hosting](#azure-vm-hosting).
+The following commands
 create billable Azure resources; run them yourself after selecting a subscription,
 resource group, region, and globally unique registry name.
 Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
@@ -579,6 +724,71 @@ Download and approve the model as above, then start the base stack with
 For release promotion, record the pushed image digests and pin the deployed
 service images to those immutable digests rather than reusing mutable tags.
 Use ACR retention/lifecycle policies appropriate to your subscription.
+
+## Azure VM hosting
+
+For a complete first-time setup, use the
+[step-by-step Azure deployment guide](docs/azure-deployment.md), including
+screenshots, private access, optional HTTPS and Foundry, verification, and cleanup.
+The supplied [HTTPS overlay](compose.https.yaml) is opt-in and intentionally
+unauthenticated; read its public-access warning before enabling it.
+
+The optional single-VM development deployment runs the Compose stack on Ubuntu
+24.04 in Azure. The smaller configuration uses 2 vCPUs, 8 GiB RAM, a 128 GiB
+Standard SSD, and the approved Qwen3 1.7B, Qwen3 0.6B, and Llama 3.2 1B routes.
+Ollama has a 5 GiB container memory ceiling with only one model loaded at a time,
+allowing room for model switching within the same VM. The hosted deployment also
+offers opt-in GPT-4.1 nano and mini through Azure AI Foundry in East US 2, under
+the shared USD 1 daily application allowance described above. Cloud routes remain
+disabled in the source catalog until configured. CPU inference is slower than on
+the recommended local hardware.
+
+Caddy terminates HTTPS on the VM's Azure DNS name. At the owner's request, the
+hosted web interface and API are public and do not require a username or password.
+The proxy supplies the internal bearer credential to REST requests without
+exposing it to browsers. Only a matching HTTPS browser origin
+is translated to the application's loopback origin; cross-origin browser
+requests remain blocked. The application ingress stays on `127.0.0.1:8000`;
+Ollama, the gateway, the agent, and Temporal have no public service ports.
+The network security group allows public TCP 80/443 for certificate issuance
+and HTTPS, with SSH restricted to the administrator's public IPv4 address.
+
+> [!WARNING]
+> Anyone who can reach the public URL can run inference, submit document jobs,
+> and access shared usage and document results. There is no per-user isolation.
+> Browser origin checks are not authentication and do not prevent direct API use
+> or resource exhaustion. Do not submit private documents or share sensitive data.
+
+Workstation deployment state, the SSH key, and deployment and verification scripts
+are stored under the ignored `.local/azure/` directory.
+Keep that directory private and do not commit or share its SSH key.
+The VM stores application files and root-only configuration in
+`/opt/intel-agent`. Manage its stack from a root shell:
+
+```bash
+sudo -i
+cd /opt/intel-agent
+docker compose -f compose.yaml -f compose.cloud.yaml -f compose.temporal.yaml -f compose.azure.yaml ps
+docker compose -f compose.yaml -f compose.cloud.yaml -f compose.temporal.yaml -f compose.azure.yaml logs --tail 50
+```
+
+Named volumes retain models, usage, documents, Temporal state, and TLS
+certificates across container restarts. They reside on the VM disk, not an
+independent backup. This deployment uses Temporal's development server and
+unauthenticated public access; it is not a highly available production service or
+an authorized environment for federal nonpublic information. Use public or
+synthetic data only.
+
+VM compute, disks, and networking incur Azure charges. To stop compute billing,
+deallocate the VM rather than only stopping its containers:
+
+```bash
+az vm deallocate --resource-group YOUR_RESOURCE_GROUP --name intel-agent-vm
+```
+
+Disk and public IP charges can continue while the VM is deallocated. Deleting
+the dedicated resource group removes the deployment and its persistent data;
+export anything you need before doing so.
 
 ## Limits and operational behavior
 

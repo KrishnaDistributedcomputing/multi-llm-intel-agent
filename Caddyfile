@@ -1,0 +1,8 @@
+{$PUBLIC_HOST} {
+	@same_origin header Origin https://{$PUBLIC_HOST}
+	request_header @same_origin Origin http://localhost
+	reverse_proxy 127.0.0.1:8000 {
+		header_up Host localhost
+		header_up Authorization "Bearer {$AGENT_API_KEY}"
+	}
+}
